@@ -2,6 +2,7 @@
 // things you learn actually stick (inspired by TIL logs, Readwise and Anki).
 
 import * as store from '../store.js';
+import { shareButton } from '../share.js';
 import * as D from '../dates.js';
 import { h, icon, section, empty, segmented, toast, sheet, closeSheet, field, removeWithUndo } from '../ui.js';
 import { dictateButton } from '../voice.js';
@@ -131,6 +132,7 @@ export function editLearning(l) {
     h('p', { class: 'muted small' }, `Next review: ${l.noReview ? 'off' : D.fmtDate(l.due || D.today())} · reviewed ${(l.reviewDates || []).length}×`)), {
     actions: [
       h('button', { class: 'btn danger ghost', onclick: () => { closeSheet(); removeWithUndo('learnings', l.id, 'Learning deleted'); } }, icon('trash', 18), 'Delete'),
+      shareButton(() => ({ type: 'learning', title: text.value.trim(), body: details.value.trim(), topics: parseTopics(topics.value) })),
       h('button', { class: 'btn primary', onclick: () => {
         if (!text.value.trim()) return;
         store.put('learnings', { ...l, text: text.value.trim(), details: details.value.trim(), type: type.value, topics: parseTopics(topics.value), source: source.value.trim(), noReview: !noReview.checked });

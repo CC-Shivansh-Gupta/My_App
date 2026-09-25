@@ -3,7 +3,8 @@
 
 import * as D from '../dates.js';
 import * as X from '../gamify.js';
-import { h, section, segmented } from '../ui.js';
+import * as store from '../store.js';
+import { h, section, segmented, field } from '../ui.js';
 import * as C from '../charts.js';
 
 let tab = 'overview';
@@ -31,7 +32,9 @@ export function render(ctx) {
         stat(`+${s.today + questXP}`, 'XP today'),
         stat(`🔥 ${s.streak}`, 'Day streak'),
         stat(`${s.bestStreak}`, 'Best streak'),
-        stat(`${unlocked}`, 'Badges'))),
+        stat(`${unlocked}`, 'Badges')),
+      h('p', { class: 'week-net small' }, h('span', { class: 'gain' }, `+${s.weekGain.toLocaleString()} earned`), ' · ',
+        h('span', { class: 'loss' }, `${s.weekLoss.toLocaleString()} lost`), ' this week')),
     tab === 'achievements' ? badges(achievements) : tab === 'xp' ? xpLog(s) : overview(s, quests));
 }
 
@@ -53,7 +56,10 @@ function overview(s, quests) {
             q.progress[1] > 1 ? h('span', { class: 'progress' }, h('span', { style: { width: `${(q.progress[0] / q.progress[1]) * 100}%` } })) : null),
           h('span', { class: 'quest-xp' }, `+${q.xp} XP`)))),
         h('p', { class: 'muted small' }, 'New quests every day. Quest XP counts for today’s total.')),
-      section('XP · last 30 days', null, C.columns(last30(s), { fmt: (v) => `${v}`, height: 110, labelEvery: 5 }))),
+      section('XP earned · last 30 days', null, C.columns(last30(s), { fmt: (v) => `${v}`, height: 110, labelEvery: 5 })),
+      section('Penalties', null,
+        h('p', { class: 'small muted' }, 'Missed habits, overdue tasks, undone to-dos, days over your screen limit, months over budget and slips on habits you’re breaking all cost XP.'),
+        field('Severity', segmented([['off', 'Off'], ['gentle', 'Gentle'], ['normal', 'Normal'], ['hardcore', 'Hardcore']], store.pref('penaltyLevel', 'normal'), (v) => store.setPref('penaltyLevel', v), { small: true })))),
     section('Attributes', null,
       h('div', { class: 'attrs' }, Object.entries(X.ATTRS).map(([k, a]) => {
         const al = X.attrLevel(s.attrs[k]);
@@ -72,8 +78,8 @@ function last30(s) {
   const t = D.today();
   return Array.from({ length: 30 }, (_, i) => {
     const d = D.addDays(t, i - 29);
-    const v = s.byDay[d] || 0;
-    return { label: D.parse(d).getDate(), value: v, highlight: d === t, tip: `${D.fmtDate(d, { relative: false })}: ${v} XP` };
+    const g = s.gains[d] || 0; const l = s.losses[d] || 0;
+    return { label: D.parse(d).getDate(), value: g, highlight: d === t, tip: `${D.fmtDate(d, { relative: false })}: +${g} XP${l ? `, ${l} lost (net ${g + l})` : ''}` };
   });
 }
 
@@ -89,20 +95,27 @@ const KIND_LABEL = {
   todo: '☑️ To-dos done', task: '📋 Tasks done', habit: '✅ Habit ticks', workout: '🏋️ Workouts', pr: '📈 Personal records', measure: '⚖️ Body weight logs',
   book: '📘 Books finished', article: '📄 Papers & articles read', watched: '🍿 Movies & shows watched', episodes: '📺 Episodes', learning: '💡 Learnings',
   review: '🔁 Reviews', note: '📝 Notes', expense: '🧾 Expenses logged', budget: '🏦 Months under budget', goalSet: '🎯 Goals set', milestone: '🪜 Milestones',
-  goal: '🏆 Goals achieved', routine: '⏰ Routine blocks followed', timelog: '⏱️ Time entries', screenLog: '📱 Screen time logged', screenUnder: '🧘 Days under screen limit',
+  goal: '🏆 Goals achieved', clean: '🕊️ Clean days (habits to break)',
+  habitMiss: '❌ Missed habits', lateTask: '⏳ Overdue tasks', todoMiss: '🗑️ Undone to-dos', screenOver: '📱 Over screen limit',
+  overBudget: '💸 Months over budget', slip: '🚬 Slips', routine: '⏰ Routine blocks followed', timelog: '⏱️ Time entries', screenLog: '📱 Screen time logged', screenUnder: '🧘 Days under screen limit',
 };
 
 function xpLog(s) {
   const ev = X.events();
   const by = {};
   for (const e of ev) { by[e.kind] ||= { n: 0, xp: 0 }; by[e.kind].n++; by[e.kind].xp += e.xp; }
-  const rows = Object.entries(by).sort((a, b) => b[1].xp - a[1].xp);
+  const rows = Object.entries(by).filter(([, v]) => v.xp > 0).sort((a, b) => b[1].xp - a[1].xp);
+  const bad = Object.entries(by).filter(([, v]) => v.xp < 0).sort((a, b) => a[1].xp - b[1].xp);
+  const maxAbs = Math.max(1, ...Object.values(by).map((v) => Math.abs(v.xp)));
+  const bar = ([k, v]) => h('div', { class: ['hbar', v.xp < 0 && 'neg'], 'data-tip': `${v.n} × = ${v.xp} XP` },
+    h('span', { class: 'hbar-label' }, KIND_LABEL[k] || k),
+    h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill', style: { width: `${(Math.abs(v.xp) / maxAbs) * 100}%` } })),
+    h('span', { class: 'hbar-value' }, `${v.xp > 0 ? '' : '−'}${Math.abs(v.xp).toLocaleString()}`, h('small', null, ` · ${v.n}×`)));
   return section('Where your XP comes from', null,
-    h('div', { class: 'hbars' }, rows.map(([k, v]) => h('div', { class: 'hbar', 'data-tip': `${v.n} × = ${v.xp} XP` },
-      h('span', { class: 'hbar-label' }, KIND_LABEL[k] || k),
-      h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill', style: { width: `${(v.xp / rows[0][1].xp) * 100}%` } })),
-      h('span', { class: 'hbar-value' }, `${v.xp.toLocaleString()}`, h('small', null, ` · ${v.n}×`))))),
-    h('p', { class: 'muted small' }, 'Points: to-do 5 · task 10–25 · habit 10 · workout 30+ · PR 15 · book 50 · learning 10 · review 2 · routine block 5 · goal 50 / 150 / 500 · month under budget 100 · day under screen limit 15.'));
+    h('div', { class: 'hbars' }, rows.map(bar)),
+    bad.length ? h('p', { class: 'sub-head' }, 'Where you lost XP') : null,
+    bad.length ? h('div', { class: 'hbars' }, bad.map(bar)) : null,
+    h('p', { class: 'muted small' }, 'Penalties (normal): missed habit −3 · overdue task −5 · undone to-do −2 · screen over limit −1 per 15 min · month over budget −100 · slip −5 to −50. Clean day +2. Points: to-do 5 · task 10–25 · habit 10 · workout 30+ · PR 15 · book 50 · learning 10 · review 2 · routine block 5 · goal 50 / 150 / 500 · month under budget 100 · day under screen limit 15.'));
 }
 
 // Level chip for the sidebar / Today.

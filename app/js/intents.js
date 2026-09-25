@@ -222,6 +222,10 @@ export function parseCommand(input, base = todayStr()) {
     return { type: 'expense', amount, note: note.replace(/^(?:on|for)\s+/i, ''), date: smart.date || base, category: smart.tag };
   }
 
+  // ---- slips on habits you're breaking ----
+  m = raw.match(/^(?:i\s+)?(?:slipped|relapsed|gave in|caved|messed up|failed)(?:\s+(?:on|with|to|again))*\s+(?:my\s+)?(.+?)(?:\s+(today|yesterday))?$/i);
+  if (m) return { type: 'slip', target: m[1], date: m[2] && m[2].toLowerCase() === 'yesterday' ? parseSmart('yesterday', base).date : base };
+
   // ---- mark done ----
   m = raw.match(/^(?:mark|check off|check|tick off|tick|complete|finish|finished|completed|done with|i did|i've done|i have done|i finished|i completed|i'm done with|im done with)\s+(?:my\s+|the\s+)?(.+?)(?:\s+as)?(?:\s+(?:done|complete|completed|finished))?(?:\s+(today|yesterday))?$/i);
   if (m && !/^(?:reading)\b/i.test(m[1])) return { type: 'done', target: m[1], date: m[2] && m[2].toLowerCase() === 'yesterday' ? parseSmart('yesterday', base).date : base, strict: true };
@@ -281,7 +285,10 @@ const STOP = new Set(['my', 'the', 'a', 'an', 'to', 'for', 'of', 'i', 'did', 'do
 
 export function stem(w) {
   w = w.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const irregular = { ran: 'run', went: 'go', gym: 'exercis', workout: 'exercis', worked: 'exercis', drank: 'drink', slept: 'sleep', wrote: 'writ', ate: 'eat', swam: 'swim', rode: 'ride', woke: 'wake' };
+  const irregular = { ran: 'run', went: 'go', gym: 'exercis', workout: 'exercis', worked: 'exercis', drank: 'drink', drinking: 'drink', slept: 'sleep', wrote: 'writ',
+    ate: 'eat', swam: 'swim', rode: 'ride', woke: 'wake', smoked: 'smok', smoking: 'smok', cigarette: 'smok', cigarettes: 'smok', smoke: 'smok',
+    doomscrolled: 'doomscroll', doomscrolling: 'doomscroll', scrolled: 'doomscroll', snoozed: 'snooz', snoozing: 'snooz', beer: 'drink', beers: 'drink', alcohol: 'drink',
+    burger: 'junk', pizza: 'junk', fries: 'junk', chips: 'junk', junk: 'junk' };
   if (irregular[w]) return irregular[w];
   for (const suf of ['ations', 'ation', 'ing', 'ed', 'es', 'e', 's']) {
     if (w.length > suf.length + 2 && w.endsWith(suf)) return w.slice(0, -suf.length);

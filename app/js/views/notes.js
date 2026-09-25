@@ -2,6 +2,7 @@
 // The first line of a note is its title. Lines starting with "[ ]" or "[x]" become checkboxes.
 
 import * as store from '../store.js';
+import { shareButton } from '../share.js';
 import * as D from '../dates.js';
 import { h, icon, sheet, closeSheet, empty, toast, removeWithUndo } from '../ui.js';
 import { dictateButton } from '../voice.js';
@@ -106,6 +107,7 @@ export function editNote(n = null) {
     h('button', { class: 'btn ghost', onclick: () => { clearTimeout(timer); persist(); if (rec) { store.put('notes', { ...rec, pinned: !rec.pinned }); } closeSheet(); } }, icon('pin', 18), n?.pinned ? 'Unpin' : 'Pin'),
     h('button', { class: 'btn primary', onclick: done }, 'Done'),
   ];
+  if (n) actions.unshift(shareButton(() => { const cur = { text: ta.value }; return { type: 'note', title: titleOf(cur), body: bodyOf(cur) }; }));
   if (n) actions.unshift(h('button', { class: 'btn danger ghost', onclick: () => { clearTimeout(timer); gone = true; closeSheet(); removeWithUndo('notes', n.id, 'Note deleted'); } }, icon('trash', 18), 'Delete'));
   const panel = sheet(n ? 'Note' : 'New note', ta, { actions });
   // Save whatever was typed if the sheet is dismissed another way.

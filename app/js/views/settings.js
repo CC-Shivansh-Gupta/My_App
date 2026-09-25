@@ -13,7 +13,7 @@ const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&descriptio
 export function render(ctx) {
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'Settings')),
-    syncCard(ctx), voiceCard(), navCard(), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
+    syncCard(ctx), voiceCard(), gameCard(), navCard(), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
 }
 
 function syncCard(ctx) {
@@ -62,6 +62,13 @@ function voiceCard() {
       field('Recognition language / accent', lang),
       field('Speak replies out loud', segmented([[true, 'On'], [false, 'Off']], store.pref('voiceReplies', true), (v) => store.setPref('voiceReplies', v))),
       h('button', { class: 'btn ghost', onclick: () => voice.speak('Hi! Voice replies are working.') }, 'Test voice')));
+}
+
+function gameCard() {
+  return section('Gamification', h('a', { class: 'btn ghost sm', href: '#/stats' }, 'Stats'),
+    h('p', { class: 'small muted' }, 'How hard bad days hit your XP: missed habits, overdue tasks, undone to-dos, going over your screen limit or budget, and slips on habits you’re breaking.'),
+    field('Penalties', segmented([['off', 'Off'], ['gentle', 'Gentle ×½'], ['normal', 'Normal'], ['hardcore', 'Hardcore ×2']], store.pref('penaltyLevel', 'normal'), (v) => store.setPref('penaltyLevel', v), { small: true })),
+    h('a', { class: 'btn ghost', href: '#/friends' }, 'Compete with friends →'));
 }
 
 function navCard() {

@@ -4,7 +4,7 @@
 
 export const COLLECTIONS = ['events', 'todos', 'tasks', 'reading', 'habits', 'habitLogs',
   'expenses', 'newsMarks', 'prefs', 'notes', 'workouts', 'templates', 'exercises', 'measurements', 'goals', 'taskGroups',
-  'learnings', 'watch', 'routine', 'routineLogs', 'timelog', 'screentime'];
+  'learnings', 'watch', 'routine', 'routineLogs', 'timelog', 'screentime', 'vices', 'slips'];
 
 const KEY = 'daybook.data.v1';
 const TOMBSTONE_TTL = 120 * 86400000;

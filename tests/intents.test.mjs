@@ -128,3 +128,9 @@ test('learnings, watch list, day tracker, screen time', () => {
   assert.equal(pc('what level am I').what, 'stats');
   assert.equal(pc("what's my screen time today").what, 'screen');
 });
+
+test('slips', () => {
+  assert.deepEqual(pc('I slipped on junk food'), { type: 'slip', target: 'junk food', date: B });
+  assert.equal(pc('relapsed smoking yesterday').date, '2026-09-24');
+  assert.equal(pc('I smoked a cigarette').type, 'done'); // matched to a habit-to-break at run time
+});

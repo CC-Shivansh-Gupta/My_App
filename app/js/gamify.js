@@ -110,32 +110,103 @@ export function events() {
     for (const m of g.milestones || []) if (m.done) push(dayOf(g.updatedAt), 10, attr, 'milestone');
     if (g.status === 'done') push(dayOf(g.doneAt) || dayOf(g.updatedAt), g.horizon === 'life' ? 500 : g.horizon === 'year' ? 150 : 50, attr, 'goal');
   }
+  penalties(push);
   return ev;
+}
+
+// ---- Penalties: bad days cost XP (severity is a setting) ---------------------------------------------------
+export const SEVERITY = { off: 0, gentle: 0.5, normal: 1, hardcore: 2 };
+const LOOKBACK = 120; // days of history that can cost XP
+
+function penalties(push) {
+  const mult = SEVERITY[store.pref('penaltyLevel', 'normal')] ?? 1;
+  const t = D.today();
+  const earliest = D.addDays(t, -LOOKBACK);
+  const neg = (date, xp, attr, kind) => { if (mult && date && date >= earliest && date < t) push(date, -Math.max(1, Math.round(xp * mult)), attr, kind); };
+
+  // Missed habits (scheduled days you didn't tick, from the day the habit started).
+  const done = new Set(store.all('habitLogs').filter((l) => l.done).map((l) => `${l.habit}|${l.date}`));
+  for (const hb of store.all('habits')) {
+    if (hb.archived) continue;
+    let start = D.toStr(new Date(hb.createdAt || Date.now()));
+    for (const l of store.all('habitLogs')) if (l.habit === hb.id && l.done && l.date < start) start = l.date;
+    const days = hb.days && hb.days.length ? hb.days : [0, 1, 2, 3, 4, 5, 6];
+    for (let d = start < earliest ? earliest : start; d < t; d = D.addDays(d, 1)) {
+      if (days.includes(D.weekday(d)) && !done.has(`${hb.id}|${d}`)) neg(d, 3, 'dis', 'habitMiss');
+    }
+  }
+  // Tasks that went past their due date (once each, the day after it was due).
+  for (const x of store.all('tasks')) {
+    if (!x.due) continue;
+    const finished = x.done ? dayOf(x.doneAt) || dayOf(x.updatedAt) : null;
+    if (!finished || finished > x.due) neg(D.addDays(x.due, 1), 5, 'dis', 'lateTask');
+  }
+  // To-dos left undone on their day.
+  for (const x of store.all('todos')) if (!x.done) neg(x.date, 2, 'dis', 'todoMiss');
+  // Screen time over the limit: −1 per 15 minutes over, up to −20 a day.
+  const screenLimit = Number(store.pref('screenLimit', 240));
+  const byDay = {};
+  for (const e of store.all('screentime')) byDay[e.date] = (byDay[e.date] || 0) + e.minutes;
+  for (const [d, m] of Object.entries(byDay)) if (m > screenLimit) neg(d, Math.min(20, Math.ceil((m - screenLimit) / 15)), 'dis', 'screenOver');
+  // Months over budget.
+  const budget = Number(store.pref('budget', 0));
+  if (budget) {
+    const byMonth = {};
+    for (const e of store.all('expenses')) byMonth[e.date.slice(0, 7)] = (byMonth[e.date.slice(0, 7)] || 0) + e.amount;
+    for (const [m, total] of Object.entries(byMonth)) {
+      const last = D.addDays(D.addMonths(`${m}-01`, 1), -1);
+      if (total > budget) neg(last < t ? last : D.addDays(t, -1), 100, 'wlt', 'overBudget');
+    }
+  }
+  // Habits to break: slips cost their penalty; clean days earn +2.
+  const vices = store.all('vices');
+  const slipDays = {};
+  for (const sl of store.all('slips')) {
+    const v = vices.find((x) => x.id === sl.vice);
+    if (!v) continue;
+    (slipDays[v.id] ||= new Set()).add(sl.date);
+    if (mult) push(sl.date, -Math.round((v.penalty || 10) * mult), v.attr || 'dis', 'slip');
+  }
+  for (const v of vices) {
+    if (v.archived) continue;
+    const from = D.toStr(new Date(v.createdAt || Date.now()));
+    for (let d = from < earliest ? earliest : from; d < t; d = D.addDays(d, 1)) {
+      if (!slipDays[v.id]?.has(d)) push(d, 2, v.attr || 'dis', 'clean');
+    }
+  }
 }
 
 export function summary() {
   const ev = events();
-  const total = ev.reduce((s, e) => s + e.xp, 0);
+  const total = Math.max(0, ev.reduce((s, e) => s + e.xp, 0));
   const attrs = Object.fromEntries(Object.keys(ATTRS).map((k) => [k, 0]));
-  const byDay = {};
+  const byDay = {};   // net XP per day
+  const gains = {};   // positive XP per day (drives streaks)
+  const losses = {};  // penalties per day (negative numbers)
   const kinds = {};
   for (const e of ev) {
     attrs[e.attr] += e.xp;
     byDay[e.date] = (byDay[e.date] || 0) + e.xp;
+    if (e.xp > 0 && e.kind !== 'clean') gains[e.date] = (gains[e.date] || 0) + e.xp;
+    if (e.xp < 0) losses[e.date] = (losses[e.date] || 0) + e.xp;
     kinds[e.kind] = (kinds[e.kind] || 0) + 1;
   }
+  for (const k of Object.keys(attrs)) attrs[k] = Math.max(0, attrs[k]);
   const t = D.today();
+  const weekAgo = D.addDays(t, -6);
+  let weekGain = 0; let weekLoss = 0;
+  for (const e of ev) if (e.date >= weekAgo && e.date <= t) { if (e.xp > 0) weekGain += e.xp; else weekLoss += e.xp; }
   // Active-day streak (today may still be empty).
   let streak = 0;
-  let d = byDay[t] ? t : D.addDays(t, -1);
-  while (byDay[d]) { streak++; d = D.addDays(d, -1); }
+  let d = gains[t] ? t : D.addDays(t, -1);
+  while (gains[d]) { streak++; d = D.addDays(d, -1); }
   let bestStreak = 0; let run = 0; let prev = null;
-  for (const day of Object.keys(byDay).sort()) {
+  for (const day of Object.keys(gains).sort()) {
     run = prev && D.addDays(prev, 1) === day ? run + 1 : 1;
     bestStreak = Math.max(bestStreak, run);
     prev = day;
   }
-  return { total, level: levelFor(total), attrs, byDay, kinds, streak, bestStreak, today: byDay[t] || 0 };
+  return { total, level: levelFor(total), attrs, byDay, gains, losses, kinds, streak, bestStreak, today: byDay[t] || 0, weekGain, weekLoss };
 }
 
 // ---- Daily quests: three per day, picked deterministically from ones that fit your data ------------------
@@ -211,10 +282,21 @@ export function achievements(s = summary()) {
     ['routine50', '⏰', 'Clockwork', 'Follow 50 routine blocks', k.routine || 0, 50],
     ['track50', '⏱️', 'Time keeper', 'Log 50 time entries', k.timelog || 0, 50],
     ['screen7', '📵', 'Digital minimalist', 'Stay under your screen limit on 7 days', k.screenUnder || 0, 7],
+    ['clean30', '🕊️', 'Breaking free', 'Stay clean from a bad habit for 30 days', bestCleanAll(), 30],
     ['lvl10', '⭐', 'Double digits', 'Reach level 10', s.level.level, 10],
     ['lvl25', '👑', 'Royalty', 'Reach level 25', s.level.level, 25],
   ];
   return defs.map(([id, emoji, name, desc, have, need]) => ({ id, emoji, name, desc, have: Math.min(have, need), need, done: have >= need }));
+}
+
+function bestCleanAll() {
+  let best = 0;
+  const t = D.today();
+  for (const v of store.all('vices')) {
+    const dates = [D.toStr(new Date(v.createdAt || Date.now())), ...store.all('slips').filter((x) => x.vice === v.id).map((x) => x.date).sort(), t];
+    for (let i = 1; i < dates.length; i++) best = Math.max(best, D.diffDays(dates[i - 1], dates[i]));
+  }
+  return best;
 }
 
 function bestHabitStreak() {

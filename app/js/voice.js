@@ -15,6 +15,7 @@ import { addWatch } from './views/watch.js';
 import * as R from './views/routine.js';
 import * as SCR from './views/screen.js';
 import * as X from './gamify.js';
+import * as V from './vices.js';
 
 const tidy = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -204,7 +205,24 @@ export function execute(text) {
       return { say: `Nice! Marked ${r.title} as finished.`, title: `Finished: ${r.title} 🎉`, undo: () => store.put('reading', r) };
     }
 
+    case 'slip': {
+      const v = bestMatch(it.target, V.vices(), (x) => x.name, 0.4);
+      if (!v) return { say: `I couldn’t find a habit to break called ${it.target}. Add it under Habits → Habits to break.`, title: `No match for “${it.target}”`, go: null };
+      const r = V.logSlip(v, it.date);
+      const mult = X.SEVERITY[store.pref('penaltyLevel', 'normal')] ?? 1;
+      return { say: `Logged a slip on ${v.name}. That's minus ${Math.round((v.penalty || 10) * mult)} XP. Tomorrow's a new streak.`, title: `${v.emoji || '🚫'} Slip: ${v.name}`, sub: `−${Math.round((v.penalty || 10) * mult)} XP`, undo: () => store.remove('slips', r.id) };
+    }
+
     case 'done': {
+      // "I ate junk food" / "I smoked" → a habit you're breaking, if it matches one.
+      if (!it.strict) {
+        const vice = bestMatch(it.target, V.vices(), (x) => x.name, 0.5);
+        if (vice) {
+          const r = V.logSlip(vice, it.date);
+          const mult = X.SEVERITY[store.pref('penaltyLevel', 'normal')] ?? 1;
+          return { say: `Logged a slip on ${vice.name}, minus ${Math.round((vice.penalty || 10) * mult)} XP.`, title: `${vice.emoji || '🚫'} Slip: ${vice.name}`, sub: `−${Math.round((vice.penalty || 10) * mult)} XP`, undo: () => store.remove('slips', r.id) };
+        }
+      }
       const habits = M.habits();
       const hb = bestMatch(it.target, habits, (x) => x.name, it.strict ? 0.5 : 0.5);
       if (hb) {

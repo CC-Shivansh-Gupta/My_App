@@ -356,8 +356,9 @@ main {
 .hg-cell.on { background: var(--accent); border-color: var(--accent); opacity: 1; }
 .hg-stat { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 420px) {
-  .hg-row { grid-template-columns: minmax(70px, 1fr) repeat(7, 32px) 44px; gap: 3px; }
-  .hg-cell { width: 32px; height: 32px; }
+  .hg-row { grid-template-columns: minmax(0, 1fr) repeat(7, 30px) 36px; gap: 2px; }
+  .hg-cell { width: 30px; height: 30px; border-radius: 8px; }
+  .hg-stat { font-size: 12px; }
 }
 .stat-row { display: flex; gap: 8px; }
 .stat { flex: 1; display: flex; flex-direction: column; }
@@ -827,3 +828,47 @@ button.tpl-card:hover { border-color: var(--axis); background: var(--surface-2);
 .tracker .chips::-webkit-scrollbar { display: none; }
 .tracker .chip { flex: none; }
 @media (max-width: 600px) { .tl-block .tl-text span { display: none; } .tl-heads { font-size: 10.5px; } }
+
+/* ---------- Penalties & habits to break ---------- */
+.xp-pop.loss { color: var(--bad); }
+.week-net { color: var(--muted); }
+.week-net .gain { color: var(--good-ink); font-weight: 650; }
+.week-net .loss { color: var(--bad); font-weight: 650; }
+.hbar.neg .hbar-fill { background: var(--bad); opacity: .8; }
+.vice-list { display: flex; flex-direction: column; gap: 8px; }
+.vice { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 10px; border-radius: 12px; background: var(--surface-2); }
+.vice-name { display: flex; gap: 10px; align-items: center; border: 0; background: none; text-align: left; padding: 0; min-width: 0; }
+.vice-name > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.vice-dots { grid-column: 1; display: flex; gap: 3px; }
+.vice-dots i { width: 12px; height: 12px; border-radius: 3px; background: color-mix(in srgb, var(--good) 45%, transparent); }
+.vice-dots i.slip { background: var(--bad); }
+.vice-dots i.na { background: var(--line); }
+.slip-btn { grid-column: 2; grid-row: 1 / span 2; border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); color: var(--bad); }
+.name-emoji { grid-template-columns: 1fr 90px; }
+
+/* ---------- Friends ---------- */
+.rules { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; overflow-x: auto; margin: 0; }
+.board { gap: 2px; padding: 8px; }
+.board-row { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border: 0; background: none; border-radius: 12px; text-align: left; width: 100%; }
+.board-row:hover { background: var(--surface-2); }
+.board-row.me { background: var(--accent-wash); }
+.board-rank { width: 30px; text-align: center; font-size: 18px; font-weight: 700; color: var(--muted); flex: none; }
+.board-avatar { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; font-size: 22px; background: var(--surface-2); flex: none; }
+.board-avatar.sm { width: 32px; height: 32px; border-radius: 11px; font-size: 18px; }
+.board-row.me .board-avatar { background: var(--surface); }
+.board-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 14px; }
+.post { gap: 8px; }
+.post-head { display: flex; align-items: center; gap: 10px; }
+.post-title { font-weight: 600; font-size: 15.5px; overflow-wrap: anywhere; }
+.post-body { white-space: pre-wrap; color: var(--ink-2); overflow-wrap: anywhere; }
+.post-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.react { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 2px 9px; min-height: 30px; font-size: 15px; display: inline-flex; gap: 4px; align-items: center; }
+.react.on { background: var(--accent-wash); border-color: var(--accent); }
+.react small { font-size: 12px; font-weight: 650; color: var(--ink-2); }
+.post-actions .btn { margin-left: auto; }
+.post.pt-levelup, .post.pt-badge, .post.pt-goalDone { box-shadow: var(--shadow), 0 0 0 1.5px #eda100; }
+.challenge { gap: 8px; }
+.challenge.over { opacity: .8; }
+.ch-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) minmax(40px, 1fr) auto; gap: 8px; align-items: center; font-size: 14px; }
+.ch-row .progress { margin: 0; max-width: none; }
+.compare-row.two-col { grid-template-columns: minmax(110px, 1fr) 70px; }

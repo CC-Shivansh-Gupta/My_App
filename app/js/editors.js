@@ -1,6 +1,7 @@
 // Quick-add sheet plus full editor sheets for every kind of item.
 
 import * as store from './store.js';
+import { shareButton } from './share.js';
 import * as D from './dates.js';
 import * as M from './models.js';
 import { h, sheet, closeSheet, field, segmented, toast, removeWithUndo, money, icon } from './ui.js';
@@ -291,7 +292,10 @@ export function editReading(r = {}) {
     closeSheet();
   };
   const actions = [h('button', { class: 'btn primary', onclick: save }, 'Save')];
-  if (!isNew) actions.unshift(deleteBtn('reading', r.id, 'Removed from reading list'));
+  if (!isNew) {
+    actions.unshift(shareButton(() => ({ type: r.type === 'paper' ? 'paper' : r.type === 'article' ? 'article' : 'book', title: title.value.trim() || r.title, author: author.value.trim(), url: url.value.trim(), kind: r.type, body: rating ? '★'.repeat(rating) : '' })));
+    actions.unshift(deleteBtn('reading', r.id, 'Removed from reading list'));
+  }
   sheet(isNew ? 'Add to reading list' : 'Reading', h('div', { class: 'form' },
     title, author, url,
     h('div', { class: 'row2' }, field('Type', type), field('Status', status)),

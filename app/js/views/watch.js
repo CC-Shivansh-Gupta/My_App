@@ -2,6 +2,7 @@
 // with episode tracking for shows.
 
 import * as store from '../store.js';
+import { shareButton } from '../share.js';
 import * as D from '../dates.js';
 import { h, icon, section, quickInput, empty, segmented, toast, sheet, closeSheet, field, removeWithUndo } from '../ui.js';
 
@@ -103,7 +104,10 @@ export function editWatch(w = {}) {
     closeSheet();
   };
   const actions = [h('button', { class: 'btn primary', onclick: save }, 'Save')];
-  if (!isNew) actions.unshift(h('button', { class: 'btn danger ghost', onclick: () => { closeSheet(); removeWithUndo('watch', w.id, 'Removed from watch list'); } }, icon('trash', 18), 'Delete'));
+  if (!isNew) {
+    actions.unshift(shareButton(() => ({ type: 'watch', title: title.value.trim() || w.title, kind: type.value, platform: platform.value.trim(), url: url.value.trim(), body: [platform.value.trim(), rating ? '★'.repeat(rating) : ''].filter(Boolean).join(' · ') })));
+    actions.unshift(h('button', { class: 'btn danger ghost', onclick: () => { closeSheet(); removeWithUndo('watch', w.id, 'Removed from watch list'); } }, icon('trash', 18), 'Delete'));
+  }
   sheet(isNew ? 'Add to watch list' : 'Watch list', h('div', { class: 'form' }, title,
     h('div', { class: 'row2' }, field('Type', type), field('Status', status)),
     h('div', { class: 'row2' }, field('Platform', platform), field('Recommended by', rec)),

@@ -3,6 +3,7 @@
 // support a bigger goal (month → year → life).
 
 import * as store from '../store.js';
+import { shareButton } from '../share.js';
 import * as D from '../dates.js';
 import { h, icon, section, empty, segmented, toast, sheet, closeSheet, field, checkbox, quickInput, removeWithUndo } from '../ui.js';
 import * as C from '../charts.js';
@@ -240,6 +241,7 @@ export function editGoal(g) {
     actions: [
       h('button', { class: 'btn danger ghost', onclick: () => { closeSheet(); removeWithUndo('goals', g.id, 'Goal deleted'); } }, icon('trash', 18), 'Delete'),
       h('button', { class: 'btn ghost', onclick: () => { store.put('goals', { ...g, status: g.status === 'dropped' ? 'active' : 'dropped' }); closeSheet(); } }, g.status === 'dropped' ? 'Restore' : 'Drop'),
+      shareButton(() => ({ type: g.status === 'done' ? 'goalDone' : 'goal', title: title.value.trim(), body: `${areaEmoji(area.value)} ${area.value} · ${hz.value === 'life' ? 'Life goal' : hz.value === 'year' ? `Goal for ${periodIn.value || currentPeriod('year')}` : 'Goal for this month'}` })),
       h('button', { class: 'btn primary', onclick: save }, 'Save'),
     ],
   });

@@ -2,6 +2,7 @@
 // the previous session alongside, auto rest timer, PRs, history and exercise stats.
 
 import * as store from '../store.js';
+import { shareButton } from '../share.js';
 import * as D from '../dates.js';
 import * as G from '../gym/model.js';
 import * as X from '../gym/exercises.js';
@@ -354,6 +355,7 @@ function summary(w) {
   const actions = [];
   if (!tpl) actions.push(h('button', { class: 'btn ghost', onclick: () => { G.templateFromWorkout(w); closeSheet(); toast('Saved as a template'); } }, 'Save as template'));
   else actions.push(h('button', { class: 'btn ghost', onclick: () => { store.put('templates', { ...tpl, exercises: G.templateExercises(w) }); closeSheet(); toast(`Updated “${tpl.name}” with today’s sets`); } }, 'Update template'));
+  actions.push(shareButton(() => workoutShare(w, prs)));
   actions.push(h('button', { class: 'btn primary', onclick: closeSheet }, 'Done'));
   sheet('Workout complete 🎉', h('div', { class: 'summary' },
     h('p', { class: 'muted' }, `Workout #${n} · ${D.fmtDate(w.date)}`),
@@ -376,6 +378,13 @@ function prList(prs) {
   for (const p of prs) by.set(p.exId, [...(by.get(p.exId) || []), `${p.label} ${p.value}`]);
   return h('ul', { class: 'pr-list' }, [...by].map(([exId, items]) => h('li', null, icon('trophy', 16),
     h('b', null, X.displayName(X.getExercise(exId))), h('span', null, items.join(' · ')))));
+}
+
+function workoutShare(w, prs) {
+  const vol = G.workoutVolume(w);
+  return { type: 'workout', title: w.name, body: [G.fmtDuration(w.endedAt - w.startedAt), vol ? `${G.fmtNum(Math.round(vol))} ${G.unit()} volume` : '',
+    `${w.exercises.length} exercises`, prs.length ? `🏆 ${prs.length} PR${prs.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')
+    + '\n' + w.exercises.map((e) => `${e.sets.length} × ${X.displayName(X.getExercise(e.exId))}`).join('\n') };
 }
 
 function stat(value, label) {
@@ -518,6 +527,7 @@ function workoutDetail(w) {
     actions: [
       h('button', { class: 'btn danger ghost', onclick: () => { closeSheet(); store.remove('workouts', w.id); toast('Workout deleted', { label: 'Undo', run: () => store.put('workouts', w) }); } }, icon('trash', 18), 'Delete'),
       h('button', { class: 'btn ghost', onclick: () => { G.templateFromWorkout(w); closeSheet(); toast('Saved as a template'); } }, 'Save as template'),
+      shareButton(() => workoutShare(w, prs)),
       h('button', { class: 'btn primary', onclick: () => {
         closeSheet();
         if (G.activeWorkout()) { toast('Finish your current workout first'); return; }

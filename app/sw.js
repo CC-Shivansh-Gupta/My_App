@@ -3,12 +3,12 @@ const CACHE = 'daybook-v1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/main.js', 'js/store.js', 'js/sync.js', 'js/dates.js', 'js/ui.js', 'js/charts.js', 'js/models.js',
-  'js/editors.js', 'js/theme.js', 'js/intents.js', 'js/voice.js', 'js/routes.js', 'js/gamify.js',
+  'js/editors.js', 'js/theme.js', 'js/intents.js', 'js/voice.js', 'js/routes.js', 'js/gamify.js', 'js/vices.js', 'js/social.js', 'js/share.js',
   'js/gym/exercises.js', 'js/gym/model.js',
   'js/views/today.js', 'js/views/calendar.js', 'js/views/tasks.js', 'js/views/reading.js',
   'js/views/habits.js', 'js/views/expenses.js', 'js/views/news.js', 'js/views/settings.js',
   'js/views/notes.js', 'js/views/gym.js', 'js/views/goals.js', 'js/views/learnings.js', 'js/views/watch.js',
-  'js/views/routine.js', 'js/views/screen.js', 'js/views/stats.js',
+  'js/views/routine.js', 'js/views/screen.js', 'js/views/stats.js', 'js/views/friends.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 
