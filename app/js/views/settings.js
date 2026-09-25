@@ -7,6 +7,7 @@ import { h, icon, section, field, segmented, toast } from '../ui.js';
 import { applyTheme } from '../theme.js';
 import { ROUTE_META, SIDEBAR, DEFAULT_TABS, bottomTabs } from '../routes.js';
 import * as voice from '../voice.js';
+import * as install from '../install.js';
 
 const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync';
 
@@ -160,9 +161,23 @@ function exportData() {
 }
 
 function installCard() {
+  const env = install.detect();
+  const here = install.isInstalled()
+    ? h('p', { class: 'small' }, h('span', { class: ['badge', 'good'] }, 'Installed'), ' You’re using the installed app on this device.')
+    : h('div', null,
+      h('p', { class: 'small' }, h('b', null, 'On this device:')),
+      install.canPrompt()
+        ? h('div', { class: 'btn-row' }, h('button', { class: 'btn primary', onclick: async (e) => {
+          const ok = await install.prompt();
+          e.target.closest('.btn-row')?.remove();
+          if (ok) toast('Installed');
+        } }, 'Install Daybook'))
+        : h('ol', { class: 'small steps' }, ...install.stepsFor(env).map((s) => h('li', null, s))));
   return section('Install on your devices', null,
+    here,
+    h('p', { class: 'small' }, h('b', null, 'Other devices:')),
     h('ul', { class: 'small steps' },
-      h('li', null, h('b', null, 'iPad / iPhone: '), 'open this page in Safari → Share → “Add to Home Screen”.'),
+      h('li', null, h('b', null, 'iPad / iPhone: '), 'in Safari or Chrome tap the Share icon (square with an up arrow; in Chrome it’s at the right end of the address bar) → “Add to Home Screen”. Chrome needs iPadOS/iOS 16.4 or later; there is no “Install app” item in Chrome’s ⋯ menu on iPad.'),
       h('li', null, h('b', null, 'Android: '), 'open in Chrome → ⋮ menu → “Install app” (or “Add to Home screen”).'),
       h('li', null, h('b', null, 'Laptop: '), 'in Chrome or Edge click the install icon in the address bar (or ⋮ → “Install Daybook”). On a Mac with Safari: File → “Add to Dock”.')),
     h('p', { class: 'small muted' }, 'It works offline. Tip: press N anywhere (on a keyboard) to add something.'));

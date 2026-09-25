@@ -51,7 +51,7 @@ My data never goes into this repo. It stays in each device's storage and in my s
 1. **Turn on GitHub Pages:** in the repo go to **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 2. **Deploy:** merge to the default branch (or run the **Deploy** workflow from the Actions tab). The app is then live at `https://<username>.github.io/<repo>/`.
 3. **Install it on each device:**
-   - **iPad / iPhone:** open the URL in Safari → Share → **Add to Home Screen**.
+   - **iPad / iPhone:** open the URL in Safari or Chrome and tap the **Share** icon (the square with an up arrow). In Chrome it sits at the right end of the address bar. Then pick **Add to Home Screen**. Chrome on iPad has no "Install app" menu item, and it can only add to the Home Screen on iPadOS/iOS 16.4 or later. On older versions, use Safari. Settings → *Install on your devices* shows the steps for whichever device you open it on.
    - **Android:** open it in Chrome → ⋮ → **Install app**.
    - **Laptop:** open it in Chrome or Edge → click the install icon in the address bar. (On a Mac with Safari: File → **Add to Dock**.)
 4. **Turn on sync:** create a [classic token with only the `gist` scope](https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync) and set it to no expiration. In the app go to **Settings → Sync** and paste the token, then do the same on each device. The first device creates the gist and the others find it automatically.
