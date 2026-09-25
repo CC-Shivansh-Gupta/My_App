@@ -9,7 +9,6 @@
     { "name": "HN Who's Hiring", "category": "jobs", "url": "https://hnrss.org/whoishiring/jobs" },
     { "name": "YC startup jobs", "category": "jobs", "url": "https://hnrss.org/jobs" },
     { "name": "We Work Remotely", "category": "jobs", "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss" },
-    { "name": "Remote OK", "category": "jobs", "url": "https://remoteok.com/remote-jobs.rss" },
     { "name": "Hacker News", "category": "news", "url": "https://hnrss.org/frontpage?points=150" },
     { "name": "The Gradient", "category": "news", "url": "https://thegradient.pub/rss/" },
     { "name": "Google Research blog", "category": "news", "url": "https://research.google/blog/rss/" }
