@@ -13,14 +13,14 @@ function niceMax(v) {
 }
 
 // Vertical columns. data: [{label, value, tip, highlight}]
-export function columns(data, { fmt = String, height = 140, labelEvery = 1, avg = null } = {}) {
+export function columns(data, { fmt = String, height = 140, labelEvery = 1, avg = null, avgLabel = null } = {}) {
   const max = niceMax(Math.max(...data.map((d) => d.value), avg || 0));
   const ticks = [max, max / 2, 0];
   return h('div', { class: 'chart' },
     h('div', { class: 'col-plot', style: { height: `${height}px` } },
       ticks.map((t) => h('div', { class: 'grid', style: { bottom: `${(t / max) * 100}%` } },
         h('span', null, fmt(t)))),
-      avg ? h('div', { class: 'avg-line', style: { bottom: `${(avg / max) * 100}%` }, 'data-tip': `Average ${fmt(avg)}` }) : null,
+      avg ? h('div', { class: 'avg-line', style: { bottom: `${(avg / max) * 100}%` }, 'data-tip': avgLabel || `Average ${fmt(avg)}` }) : null,
       h('div', { class: 'cols' },
         data.map((d) => h('div', { class: 'col', 'data-tip': d.tip || `${d.label}: ${fmt(d.value)}` },
           h('div', {

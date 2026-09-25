@@ -8,6 +8,10 @@ import { h, icon, section, checkbox, quickInput, empty, money, toast } from '../
 import { topNews } from './news.js';
 import * as gym from './gym.js';
 import * as goals from './goals.js';
+import * as learn from './learnings.js';
+import * as routine from './routine.js';
+import * as screen from './screen.js';
+import { levelChip } from './stats.js';
 
 let day = null; // date being viewed; null = follow the real "today"
 
@@ -22,14 +26,15 @@ export function render(ctx) {
       h('p', { class: 'eyebrow' }, isToday ? greeting() : D.fmtDate(date)),
       h('h1', null, D.DAY_NAMES[d.getDay()] + ', ' + d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' }))),
     h('div', { class: 'day-nav' },
+      isToday ? h('span', { class: 'hide-lg' }, levelChip()) : null,
       h('button', { class: 'icon-btn', 'aria-label': 'Previous day', onclick: () => { day = D.addDays(date, -1); ctx.rerender(); } }, icon('left')),
       !isToday ? h('button', { class: 'btn ghost sm', onclick: () => { day = null; ctx.rerender(); } }, 'Today') : null,
       h('button', { class: 'icon-btn', 'aria-label': 'Next day', onclick: () => { day = D.addDays(date, 1); ctx.rerender(); } }, icon('right'))));
 
   return h('div', { class: 'page' }, header,
     h('div', { class: 'grid-2' },
-      h('div', { class: 'stack' }, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null),
-      h('div', { class: 'stack' }, isToday ? gym.todayCard() : null, habitsCard(date), spendCard(date), readingCard(), isToday ? newsCard() : null)));
+      h('div', { class: 'stack' }, isToday ? routine.todayCard() : null, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null, isToday ? learn.todayCard() : null),
+      h('div', { class: 'stack' }, isToday ? gym.todayCard() : null, habitsCard(date), spendCard(date), isToday ? screen.todayCard() : null, readingCard(), isToday ? newsCard() : null)));
 }
 
 export function onLeave() { day = null; }

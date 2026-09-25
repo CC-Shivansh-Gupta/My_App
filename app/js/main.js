@@ -17,6 +17,12 @@ import * as settings from './views/settings.js';
 import * as notes from './views/notes.js';
 import * as gym from './views/gym.js';
 import * as goals from './views/goals.js';
+import * as learn from './views/learnings.js';
+import * as watch from './views/watch.js';
+import * as routine from './views/routine.js';
+import * as screen from './views/screen.js';
+import * as stats from './views/stats.js';
+import * as gamify from './gamify.js';
 import * as voice from './voice.js';
 import * as G from './gym/model.js';
 import { ROUTE_META, SIDEBAR, bottomTabs } from './routes.js';
@@ -25,6 +31,7 @@ const VIEWS = {
   today: [today, 'todo'], calendar: [calendar, 'event'], tasks: [tasks, 'task'], habits: [habits, 'todo'],
   goals: [goals, 'goal'], gym: [gym, 'todo'], money: [expenses, 'expense'], notes: [notes, 'note'],
   reading: [reading, 'reading'], news: [news, 'reading'], settings: [settings, 'todo'],
+  learn: [learn, 'learning'], watch: [watch, 'watch'], routine: [routine, 'track'], screen: [screen, 'todo'], stats: [stats, 'todo'],
   more: [{ render: settings.renderMore }, 'todo'],
 };
 const ROUTES = Object.fromEntries(Object.entries(VIEWS).map(([k, [view, add]]) => [k, { ...ROUTE_META[k], view, add }]));
@@ -57,6 +64,7 @@ function renderNav() {
     : st.error ? `Sync error: ${st.error}` : st.lastSync ? `Synced ${new Date(st.lastSync).toLocaleTimeString()}` : 'Syncing…');
   sidebar.replaceChildren(
     h('div', { class: 'brand' }, h('img', { src: 'icons/icon.svg', alt: '', width: 28, height: 28 }), h('span', null, 'Daybook')),
+    stats.levelChip(),
     ...SIDEBAR.map((n) => navLink(n, { badge: n === 'news' ? newsCount : 0 })),
     h('div', { class: 'sidebar-foot' }, navLink('settings'), h('a', { href: '#/settings', class: 'sync-status' }, syncDot)));
   const tabs = bottomTabs();
@@ -98,6 +106,30 @@ export function rerender() {
   }
 }
 
+// Floating "+10 XP" after you complete something; a toast when you level up.
+let lastXP = null;
+let xpTimer = null;
+function xpCheck() {
+  clearTimeout(xpTimer);
+  xpTimer = setTimeout(() => {
+    const s = gamify.summary();
+    if (lastXP !== null && s.total > lastXP) {
+      const gain = s.total - lastXP;
+      const el = h('div', { class: 'xp-pop' }, `+${gain} XP`);
+      document.body.append(el);
+      setTimeout(() => el.remove(), 1400);
+      const before = gamify.levelFor(lastXP).level;
+      if (s.level.level > before) {
+        const lv = h('div', { class: 'levelup' }, h('span', { class: 'big-emoji' }, '🎉'), h('b', null, `Level ${s.level.level}!`), h('span', null, s.level.rank));
+        document.body.append(lv);
+        voice.speak(`Level up! You're now level ${s.level.level}.`);
+        setTimeout(() => lv.remove(), 2600);
+      }
+    }
+    lastXP = s.total;
+  }, 350);
+}
+
 function openVoice() {
   voice.openVoice({ go: (r) => { location.hash = `#/${r}`; } });
 }
@@ -113,7 +145,7 @@ function boot() {
     onclick: openVoice }, icon('mic', 24));
   document.body.append(h('div', { class: 'shell' }, sidebar, main), bottom, workoutPill, micFab, fab);
 
-  store.subscribe((source) => { if (source !== 'silent') rerender(); });
+  store.subscribe((source) => { if (source !== 'silent') rerender(); if (source === 'local') xpCheck(); });
   sync.onStatus(() => renderNav());
   news.setRerender(rerender);
   window.addEventListener('hashchange', rerender);
@@ -126,7 +158,7 @@ function boot() {
     if (isSheetOpen()) return;
     if (e.key === 'n' || e.key === 'N' || e.key === '+') { e.preventDefault(); quickAdd({ kind: ROUTES[current].add }); return; }
     if (e.key === 'v' || e.key === 'V') { e.preventDefault(); openVoice(); return; }
-    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', g: 'goals', y: 'gym', m: 'money', o: 'notes', r: 'reading', w: 'news' }[e.key];
+    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats' }[e.key];
     if (jump && !isSheetOpen()) location.hash = `#/${jump}`;
   });
 
@@ -135,9 +167,18 @@ function boot() {
     if (D.today() !== currentDay) { currentDay = D.today(); rerender(); }
   };
   setInterval(checkDay, 60000);
+  // Keep the day tracker's running timer fresh without re-rendering.
+  setInterval(() => {
+    for (const el of document.querySelectorAll('.live-dur')) {
+      const [hh, mm] = el.dataset.start.split(':').map(Number);
+      const d = new Date(); const m = d.getHours() * 60 + d.getMinutes() - (hh * 60 + mm);
+      el.textContent = m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${Math.max(0, m)}m`;
+    }
+  }, 20000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { checkDay(); news.load(); } });
 
   rerender();
+  lastXP = gamify.summary().total;
   gym.startTicker();
   sync.start();
   news.load();

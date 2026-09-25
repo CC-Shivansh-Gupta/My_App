@@ -3,7 +3,8 @@
 // tombstone so they can sync. Merging two copies keeps the newest record per id.
 
 export const COLLECTIONS = ['events', 'todos', 'tasks', 'reading', 'habits', 'habitLogs',
-  'expenses', 'newsMarks', 'prefs', 'notes', 'workouts', 'templates', 'exercises', 'measurements', 'goals', 'taskGroups'];
+  'expenses', 'newsMarks', 'prefs', 'notes', 'workouts', 'templates', 'exercises', 'measurements', 'goals', 'taskGroups',
+  'learnings', 'watch', 'routine', 'routineLogs', 'timelog', 'screentime'];
 
 const KEY = 'daybook.data.v1';
 const TOMBSTONE_TTL = 120 * 86400000;

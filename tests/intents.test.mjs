@@ -109,3 +109,22 @@ test('task headings', () => {
   assert.equal(pc('add call plumber under the home section').heading, 'home');
   assert.equal(pc('what are my goals').what, 'goals');
 });
+
+test('learnings, watch list, day tracker, screen time', () => {
+  assert.deepEqual(pc('TIL compound interest beats timing the market'), { type: 'learning', text: 'Compound interest beats timing the market', kind: 'insight' });
+  assert.equal(pc('lesson: never skip the warm up').kind, 'lesson');
+  assert.deepEqual(pc('I learned that sleep improves memory'), { type: 'learning', text: 'Sleep improves memory', kind: 'insight' });
+  assert.deepEqual(pc('add Dune to my watch list'), { type: 'watch', title: 'Dune', kind: null });
+  assert.deepEqual(pc('add the show Severance'), { type: 'watch', title: 'Severance', kind: 'show' });
+  assert.deepEqual(pc('I watched Oppenheimer last night'), { type: 'watched', target: 'Oppenheimer' });
+  assert.deepEqual(pc('I was in meetings from 2 to 4'), { type: 'timelog', title: 'In meetings', date: B, start: '14:00', end: '16:00' });
+  assert.deepEqual(pc('log deep work from 9 to 11:30'), { type: 'timelog', title: 'Deep work', date: B, start: '09:00', end: '11:30' });
+  assert.deepEqual(pc('I was at the gym from 6 to 7 am yesterday'), { type: 'timelog', title: 'Gym', date: '2026-09-24', start: '06:00', end: '07:00' });
+  assert.deepEqual(pc("I'm now doing deep work"), { type: 'track', title: 'Deep work' });
+  assert.deepEqual(pc('start tracking reading'), { type: 'track', title: 'Reading' });
+  assert.deepEqual(pc('stop tracking'), { type: 'track', title: null });
+  assert.deepEqual(pc('screen time phone 3 hours 20 minutes'), { type: 'screen', device: 'phone', duration: '3 hours 20 minutes' });
+  assert.equal(pc('what should I be doing now').what, 'routine');
+  assert.equal(pc('what level am I').what, 'stats');
+  assert.equal(pc("what's my screen time today").what, 'screen');
+});

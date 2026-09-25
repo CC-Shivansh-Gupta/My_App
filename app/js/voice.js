@@ -10,6 +10,11 @@ import { h, icon, sheet, closeSheet, isSheetOpen, toast, money } from './ui.js';
 import { topNews } from './views/news.js';
 import { addGoal } from './views/goals.js';
 import * as G from './gym/model.js';
+import { addLearning } from './views/learnings.js';
+import { addWatch } from './views/watch.js';
+import * as R from './views/routine.js';
+import * as SCR from './views/screen.js';
+import * as X from './gamify.js';
 
 const tidy = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -247,6 +252,49 @@ export function execute(text) {
       return { say: `Logged ${it.value} ${G.unit()}.${prev && diff ? ` That’s ${Math.abs(diff)} ${diff > 0 ? 'up' : 'down'} from last time.` : ''}`, title: `Body weight: ${it.value} ${G.unit()}` };
     }
 
+    case 'learning': {
+      const r = addLearning({ text: it.text, type: it.kind });
+      return { say: 'Saved to your learnings. I’ll bring it back for review tomorrow.', title: `💡 ${r.text}`, sub: 'Learning saved · +10 XP', undo: () => store.remove('learnings', r.id) };
+    }
+
+    case 'watch': {
+      const r = addWatch({ title: it.title, type: it.kind || undefined });
+      return { say: `Added ${r.title} to your watch list.`, title: `Watch list: ${r.title}`, sub: [r.type, r.platform].filter(Boolean).join(' · '), undo: () => store.remove('watch', r.id) };
+    }
+
+    case 'watched': {
+      const w = bestMatch(it.target, store.all('watch').filter((x) => x.status !== 'done'), (x) => x.title, 0.5);
+      if (w) { store.put('watch', { ...w, status: 'done', finishedAt: t }); return { say: `Marked ${w.title} as watched. How was it? You can rate it in the watch list.`, title: `Watched: ${w.title} 🍿`, undo: () => store.put('watch', w) }; }
+      const r = addWatch({ title: it.target, status: 'done' });
+      return { say: `Logged ${r.title} as watched.`, title: `Watched: ${r.title} 🍿`, undo: () => store.remove('watch', r.id) };
+    }
+
+    case 'track': {
+      const before = R.running();
+      const r = R.track(it.title);
+      if (!it.title) return before ? { say: `Stopped tracking ${before.title}.`, title: `Stopped: ${before.title}` } : { say: 'Nothing was being tracked.', title: 'Nothing running' };
+      return { say: `Tracking ${r.title}${before ? `. Stopped ${before.title}` : ''}.`, title: `⏱️ Tracking: ${r.title}`, sub: `since ${D.fmtTime(r.start)}`, undo: () => { store.remove('timelog', r.id); if (before) store.put('timelog', before); } };
+    }
+
+    case 'timelog': {
+      const r = R.logEntry({ date: it.date, start: it.start, end: it.end, title: it.title });
+      return { say: `Logged ${r.title} from ${D.fmtTime(r.start)} to ${D.fmtTime(r.end)}.`, title: `⏱️ ${r.title}`, sub: `${D.fmtDate(r.date)} · ${D.fmtTime(r.start)} – ${D.fmtTime(r.end)}`, undo: () => store.remove('timelog', r.id) };
+    }
+
+    case 'screen': {
+      const devs = SCR.devices();
+      const alias = (d) => (/(phone|iphone|android|mobile|pixel|galaxy)/.test(d) ? 'phone' : /(ipad|tablet|tab)/.test(d) ? 'ipad' : /(laptop|computer|mac|pc|desktop|macbook|windows)/.test(d) ? 'laptop' : d);
+      const dev = it.device ? devs.find((x) => alias(x.toLowerCase()) === alias(it.device)) || bestMatch(it.device, devs, (x) => x, 0.5) : null;
+      const minutes = SCR.parseDuration(it.duration.replace(/\s+and\s+/g, ' '));
+      if (!dev) return { say: `Which device? Say something like: screen time ${devs[0].toLowerCase()} 3 hours.`, title: 'Which device?', sub: devs.join(' · ') };
+      if (!minutes) return { say: 'How long was it?', title: 'Say a duration, like “3 hours 20 minutes”.' };
+      const prev = SCR.entry(t, dev);
+      SCR.setEntry(t, dev, minutes);
+      const total = SCR.totalOn(t);
+      return { say: `Logged ${SCR.fmtMin(minutes).replace('h', ' hours').replace('m', ' minutes')} on your ${dev}. ${total > SCR.limit() ? 'You’re over your daily limit.' : `Total today is ${SCR.fmtMin(total).replace('h', ' hours').replace('m', ' minutes')}.`}`,
+        title: `📱 ${dev}: ${SCR.fmtMin(minutes)}`, sub: `Total today ${SCR.fmtMin(total)} · limit ${SCR.fmtMin(SCR.limit())}`, undo: () => SCR.setEntry(t, dev, prev ? prev.minutes : null) };
+    }
+
     case 'query':
       return answer(it, t);
 
@@ -307,6 +355,32 @@ function answer(q, t) {
     const say = left.length ? `${done.length} of ${list.length} done. Still to do: ${listSay(left.map((x) => x.name))}.` : `All ${list.length} habits done today. Great job!`;
     return { say, title: `Habits · ${done.length}/${list.length}`, lines: list.map((hb) => `${M.isDone(hb.id, t) ? '✅' : '⬜️'} ${hb.name}`) };
   }
+  if (q.what === 'routine') {
+    const { now, next } = R.nowAndNext();
+    const cur = R.running();
+    if (!R.blocks().length) return { say: 'You haven’t planned a routine yet. Open Routine to design your ideal day.', title: 'No routine yet', go: 'routine' };
+    const say = `${now ? `Right now your routine says: ${now.block.title}, until ${D.fmtTime(now.block.end)}.` : 'You have free time right now.'}${next ? ` Next up at ${D.fmtTime(next.block.start)}: ${next.block.title}.` : ''}${cur ? ` You're tracking ${cur.title}.` : ''}`;
+    return { say, title: now ? `Now: ${now.block.title}` : 'Free time', sub: next ? `Next: ${D.fmtTime(next.block.start)} · ${next.block.title}` : '' };
+  }
+  if (q.what === 'stats') {
+    const s = X.summary();
+    const qs = X.quests();
+    const left = qs.filter((x) => !x.done);
+    return { say: `You're level ${s.level.level}, ${s.level.rank}, with ${s.total.toLocaleString()} XP. ${s.level.need - s.level.into} XP to the next level.${left.length ? ` Today's quests left: ${listSay(left.map((x) => x.title))}.` : ' All quests done today!'}`,
+      title: `Level ${s.level.level} · ${s.level.rank}`, sub: `${s.total.toLocaleString()} XP · 🔥 ${s.streak}-day streak`, lines: qs.map((x) => `${x.done ? '✅' : x.emoji} ${x.title} (+${x.xp} XP)`) };
+  }
+  if (q.what === 'screen') {
+    const tot = SCR.totalOn(t);
+    const y = SCR.totalOn(D.addDays(t, -1));
+    if (tot === null && y === null) return { say: 'No screen time logged yet. Say for example: screen time phone 3 hours.', title: 'No screen time logged', go: 'screen' };
+    const which = tot !== null ? tot : y;
+    return { say: `${tot !== null ? 'Today' : 'Yesterday'} you logged ${SCR.fmtMin(which).replace('h', ' hours').replace('m', ' minutes')} of screen time across your devices.`, title: `📱 ${SCR.fmtMin(which)} ${tot !== null ? 'today' : 'yesterday'}` };
+  }
+  if (q.what === 'watch') {
+    const list = store.all('watch').filter((w) => w.status !== 'done').sort((a, b) => (a.status === 'watching' ? -1 : 1) - (b.status === 'watching' ? -1 : 1));
+    if (!list.length) return { say: 'Your watch list is empty.', title: 'Watch list is empty' };
+    return { say: `How about ${listSay(list.slice(0, 3).map((w) => w.title), 3)}?`, title: 'From your watch list', lines: list.slice(0, 6).map((w) => `${w.status === 'watching' ? '▶️' : '•'} ${w.title}${w.platform ? ` (${w.platform})` : ''}`) };
+  }
   if (q.what === 'goals') {
     const list = store.all('goals').filter((g) => g.status === 'active' && (g.horizon === 'life' || g.period === t.slice(0, 7) || g.period === t.slice(0, 4)));
     if (!list.length) return { say: 'You have no active goals yet.', title: 'No goals yet', go: 'goals' };
@@ -343,8 +417,9 @@ function range(p, t) {
 }
 
 // ---- The voice sheet ---------------------------------------------------------------------------
-const EXAMPLES = ['Remind me to call the bank tomorrow', 'Spent 250 on lunch', 'Schedule dentist Friday at 3 pm',
-  'What’s on my calendar tomorrow?', 'I meditated', 'Note: gate code is 4512', 'How much did I spend this month?', 'Brief me'];
+const EXAMPLES = ['Remind me to call the bank tomorrow', 'Spent 250 on lunch', 'Schedule dentist Friday at 3 pm', 'I meditated',
+  'TIL compound interest beats timing the market', 'I was in meetings from 2 to 4', 'Add Dune to my watch list', 'Screen time phone 3 hours',
+  'What should I be doing now?', 'What level am I?', 'Brief me'];
 
 export function openVoice({ autoStart = true, go } = {}) {
   let listening = false;

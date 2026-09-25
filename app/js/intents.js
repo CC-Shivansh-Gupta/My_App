@@ -101,6 +101,10 @@ export function parseCommand(input, base = todayStr()) {
   // ---- questions ----
   const question = /^(?:what|what's|whats|how|how's|which|any|anything|do i|did i|have i|is there|are there|tell me|read|list|give me|brief me|show me|summari[sz]e)\b/.test(t) || /\?$/.test(input.trim());
   if (question) {
+    if (/\bscreen ?time\b/.test(t)) return { type: 'query', what: 'screen' };
+    if (/\b(should i be doing|supposed to be doing|doing now|my routine|routine|time ?table)\b/.test(t)) return { type: 'query', what: 'routine' };
+    if (/\b(my level|what level|level am i|xp|experience points|my stats|my points|quests?)\b/.test(t)) return { type: 'query', what: 'stats' };
+    if (/\b(what should i watch|watch ?list|to watch)\b/.test(t)) return { type: 'query', what: 'watch' };
     if (/\bhow much\b|\bspen[dt]\b|\bspending\b|\bexpenses?\b/.test(t) && !/\bschedule\b/.test(t)) {
       const cat = t.match(/\b(?:on|for)\s+([a-z]+)(?:\s+(?:today|yesterday|this|last)\b.*)?$/);
       return { type: 'query', what: 'spend', period: period(t), category: cat && !['this', 'last', 'the'].includes(cat[1]) ? cat[1] : null };
@@ -119,6 +123,39 @@ export function parseCommand(input, base = todayStr()) {
     if (/\b(schedule|calendar|agenda|plans?|planned|events?|meetings?|on|have|busy|free)\b/.test(t)) {
       return { type: 'query', what: 'agenda', date: parseSmart(raw, base).date || base };
     }
+  }
+
+  // ---- learnings ----
+  m = raw.match(/^(?:til|today i learned|today i learnt|i learned|i learnt|i just learned|i've learned|i have learned|learned|lesson learned|life lesson|lesson|new learning|learning)\b[\s:,-]*(?:that\s+)?(.+)$/i);
+  if (m && m[1].trim()) {
+    const kind = /^(?:lesson|life lesson|lesson learned)/i.test(raw) ? 'lesson' : 'insight';
+    return { type: 'learning', text: m[1].trim().charAt(0).toUpperCase() + m[1].trim().slice(1), kind };
+  }
+
+  // ---- screen time ----
+  m = t.match(/^(?:log\s+|add\s+|record\s+)?(?:my\s+|the\s+)?screen ?time\s+(?:on\s+|for\s+)?(?:my\s+|the\s+)?([a-z]+)?\s*(?:was|is|:|of)?\s*(\d.*)$/);
+  if (m) return { type: 'screen', device: m[1] || null, duration: m[2].trim() };
+
+  // ---- day tracker ----
+  if (/^(?:stop|end|pause)\s+(?:the\s+)?(?:tracking|timer|tracker)$/.test(t)) return { type: 'track', title: null };
+  m = raw.match(/^(?:start tracking|track|tracking|now doing|i'?m now|i am now|now)\s+(?:doing\s+|working on\s+)?(.+)$/i)
+    || raw.match(/^(?:i'?m|i am)\s+(?:now\s+)?(?:doing|working on|starting)\s+(.+)$/i);
+  if (m) return { type: 'track', title: tidyTitle(m[1]) };
+  const tl1 = raw.match(/^(?:log|track|i was|i've been|i have been|i did|i spent time|spent time)\s+(.+?)\s+from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|till|until|-)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(today|yesterday))?$/i)
+  m = tl1 || raw.match(/^(?:from\s+)?(?=\d)()(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|till|until|-)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+i\s+(?:was\s+)?(.+?)(?:\s+(today|yesterday))?$/i);
+  if (m) {
+    const title = tl1 ? m[1] : m[8];
+    const dayWord = ((tl1 ? m[8] : m[9]) || '').toLowerCase();
+    let sh = Number(m[2]); let eh = Number(m[5]);
+    // "from 2 to 4 pm": the end's am/pm applies to the start too when the range doesn't wrap.
+    const sap = (m[4] || (sh <= eh ? m[7] : '') || '').toLowerCase(); const eap = (m[7] || '').toLowerCase();
+    if (sap === 'pm' && sh < 12) sh += 12; else if (sap === 'am' && sh === 12) sh = 0; else if (!sap && sh < 7) sh += 12;
+    if (eap === 'pm' && eh < 12) eh += 12; else if (eap === 'am' && eh === 12) eh = 0;
+    else if (!eap && eh <= sh && eh + 12 <= 24) eh += 12;
+    const pad = (n) => String(n).padStart(2, '0');
+    const day = dayWord === 'yesterday' ? parseSmart('yesterday', base).date : base;
+    return { type: 'timelog', title: tidyTitle(title.replace(/^(?:doing|working on|at)\s+/i, '')), date: day,
+      start: `${pad(sh % 24)}:${m[3] || '00'}`, end: `${pad(Math.min(eh, 23))}:${eh >= 24 ? '59' : m[6] || '00'}` };
   }
 
   // ---- gym ----
@@ -155,6 +192,18 @@ export function parseCommand(input, base = todayStr()) {
     || raw.match(/^(?:add\s+)?()(.+?)\s+to (?:my )?(?:reading|read) list$/i)
     || raw.match(/^(?:i want to read|want to read|read later)()\s+(.+)$/i);
   if (m) return { type: 'reading', ...splitBy(m[2]), kind: (m[1] || 'book').toLowerCase(), status: 'toread' };
+
+  // ---- watch list ----
+  m = raw.match(/^i\s+(?:just\s+)?(?:watched|finished watching|saw)\s+(.+)$/i);
+  if (m) return { type: 'watched', target: tidyTitle(m[1].replace(/\s+(?:today|yesterday|last night)$/i, '')) };
+  m = raw.match(/^(?:add\s+)?(?:the\s+|a\s+)?(movie|film|show|series|tv show|documentary|anime)\s+(?:called\s+)?(.+?)(?:\s+to (?:my )?watch ?list)?$/i)
+    || raw.match(/^(?:add\s+)?()(.+?)\s+to (?:my )?watch ?list$/i)
+    || raw.match(/^(?:i want to watch|want to watch|watch later|remind me to watch)()\s+(.+)$/i);
+  if (m) {
+    const k = (m[1] || '').toLowerCase();
+    const kind = /show|series|tv/.test(k) ? 'show' : /documentary/.test(k) ? 'documentary' : /anime/.test(k) ? 'anime' : k ? 'movie' : null;
+    return { type: 'watch', title: m[2].trim(), kind };
+  }
 
   // ---- expenses ----
   const hasAmount = AMOUNT.test(raw);

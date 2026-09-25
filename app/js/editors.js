@@ -6,8 +6,12 @@ import * as M from './models.js';
 import { h, sheet, closeSheet, field, segmented, toast, removeWithUndo, money, icon } from './ui.js';
 import { dictateButton } from './voice.js';
 import { addGoal, currentPeriod } from './views/goals.js';
+import { addLearning } from './views/learnings.js';
+import { addWatch } from './views/watch.js';
+import { parseLog, track, logEntry } from './views/routine.js';
 
-const KINDS = [['todo', 'To-do'], ['task', 'Task'], ['event', 'Event'], ['expense', 'Expense'], ['note', 'Note'], ['goal', 'Goal'], ['reading', 'Book']];
+const KINDS = [['todo', 'To-do'], ['task', 'Task'], ['event', 'Event'], ['expense', 'Expense'], ['note', 'Note'], ['learning', 'Learning'],
+  ['track', 'Time log'], ['goal', 'Goal'], ['reading', 'Book'], ['watch', 'Watch']];
 const HINTS = {
   todo: 'e.g. “Buy milk” or “Call bank tomorrow”',
   task: 'e.g. “Finish report fri !high #work”',
@@ -15,6 +19,9 @@ const HINTS = {
   expense: 'e.g. “250 lunch” or “1200 groceries yesterday”',
   reading: 'e.g. “Deep Work by Cal Newport”',
   note: 'Type or dictate a note',
+  learning: 'What did you learn? e.g. “Compound interest beats timing the market”',
+  track: 'What did you do? e.g. “9-11 deep work” — or “reading” to start a timer now',
+  watch: 'e.g. “Dune movie on Prime” or “Severance show”',
   goal: 'e.g. “Read 24 books this year” or “Visit Japan someday”',
 };
 
@@ -75,6 +82,12 @@ function previewFor(kind, text, base, category) {
     return [chip(title), author ? chip(`by ${author}`) : null];
   }
   if (kind === 'note') return [chip('📝 Note')];
+  if (kind === 'learning') return [chip('💡 Learning'), chip('+10 XP')];
+  if (kind === 'watch') return [chip(text.trim())];
+  if (kind === 'track') {
+    const p = parseLog(text, base);
+    return p.running ? [chip(`⏱️ Start now: ${p.title}`)] : [chip(p.title), chip(`🕑 ${D.fmtTime(p.start)} – ${D.fmtTime(p.end)}`)];
+  }
   if (kind === 'goal') {
     const g = goalFromText(text);
     return [chip(g.title), chip(g.horizon === 'life' ? '🌟 Life goal' : g.horizon === 'year' ? '📆 This year' : '🗓 This month')];
@@ -112,6 +125,13 @@ function saveQuick(kind, text, base, category) {
     return `Spent ${money(p.amount)}`;
   }
   if (kind === 'note') { store.put('notes', { text, pinned: false }); return 'Note saved'; }
+  if (kind === 'learning') { addLearning({ text: text.replace(/^(til|today i learned)[:,]?\s*/i, '') }); return 'Learning saved'; }
+  if (kind === 'watch') { addWatch({ title: text }); return 'Added to your watch list'; }
+  if (kind === 'track') {
+    const p = parseLog(text, base);
+    if (p.running) { track(p.title, p.category); return `Tracking: ${p.title}`; }
+    logEntry(p); return `Logged ${D.fmtTime(p.start)}–${D.fmtTime(p.end)}`;
+  }
   if (kind === 'goal') { const g = goalFromText(text); addGoal({ title: g.title, horizon: g.horizon, period: currentPeriod(g.horizon) }); return 'Goal added'; }
   if (kind === 'reading') {
     const { title, author } = splitBy(text);
