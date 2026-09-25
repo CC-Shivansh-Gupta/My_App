@@ -5,13 +5,15 @@ import * as sync from '../sync.js';
 import * as M from '../models.js';
 import { h, icon, section, field, segmented, toast } from '../ui.js';
 import { applyTheme } from '../theme.js';
+import { ROUTE_META, SIDEBAR, DEFAULT_TABS, bottomTabs } from '../routes.js';
+import * as voice from '../voice.js';
 
 const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync';
 
 export function render(ctx) {
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'Settings')),
-    syncCard(ctx), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
+    syncCard(ctx), voiceCard(), navCard(), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
 }
 
 function syncCard(ctx) {
@@ -43,6 +45,39 @@ function syncCard(ctx) {
       h('li', null, h('a', { href: TOKEN_URL, target: '_blank', rel: 'noopener' }, 'Create a token'), ' (classic, only the “gist” box ticked, set expiration to “No expiration”).'),
       h('li', null, 'Paste it below and press Connect.')),
     field('GitHub token', token), btn);
+}
+
+const LANGS = [['en-IN', 'English (India)'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-AU', 'English (Australia)'],
+  ['hi-IN', 'Hindi (commands still need English words)']];
+
+function voiceCard() {
+  const cur = voice.lang();
+  const opts = LANGS.some(([k]) => k === cur) ? LANGS : [[cur, cur], ...LANGS];
+  const lang = h('select', null, opts.map(([k, l]) => h('option', { value: k, selected: k === cur }, l)));
+  lang.addEventListener('change', () => store.setPref('voiceLang', lang.value));
+  return section('Voice assistant', h('span', { class: ['badge', voice.supported() ? 'good' : ''] }, voice.supported() ? 'Available' : 'Type or dictate'),
+    h('p', { class: 'small' }, 'Tap the mic button (or press V) and speak. Examples: “remind me to call the bank tomorrow”, “spent 250 on lunch”, “schedule dentist Friday at 3 pm”, “I meditated”, “start push workout”, “set a goal to read 24 books this year”, “note: gate code 4512”, “what’s on tomorrow?”, “how much did I spend this month?”, “brief me”.'),
+    voice.supported() ? null : h('p', { class: 'small muted' }, 'This browser has no built-in speech recognition. The voice panel still works: type a command, or tap the 🎤 on your keyboard to dictate it.'),
+    h('div', { class: 'form' },
+      field('Recognition language / accent', lang),
+      field('Speak replies out loud', segmented([[true, 'On'], [false, 'Off']], store.pref('voiceReplies', true), (v) => store.setPref('voiceReplies', v))),
+      h('button', { class: 'btn ghost', onclick: () => voice.speak('Hi! Voice replies are working.') }, 'Test voice')));
+}
+
+function navCard() {
+  const tabs = bottomTabs();
+  return section('Bottom bar (phone)', h('span', { class: 'count' }, `${tabs.length}/5`),
+    h('p', { class: 'small muted' }, 'Pick up to five sections for the bottom bar. Everything else lives under “More”.'),
+    h('div', { class: 'chips' }, SIDEBAR.map((k) => h('button', {
+      class: ['chip', tabs.includes(k) && 'on'],
+      onclick: () => {
+        let next = tabs.includes(k) ? tabs.filter((x) => x !== k) : [...tabs, k];
+        if (next.length > 5) { toast('Up to five — remove one first'); return; }
+        if (!next.length) next = ['today'];
+        store.setPref('navTabs', SIDEBAR.filter((x) => next.includes(x)));
+      },
+    }, ROUTE_META[k].title))),
+    h('button', { class: 'btn ghost sm', onclick: () => store.setPref('navTabs', DEFAULT_TABS) }, 'Reset'));
 }
 
 function prefsCard(ctx) {
@@ -126,12 +161,13 @@ function installCard() {
     h('p', { class: 'small muted' }, 'It works offline. Tip: press N anywhere (on a keyboard) to add something.'));
 }
 
-// "More" page for phones: the sections that don't fit in the bottom bar.
+// "More" page for phones: every section that isn't pinned to the bottom bar.
 export function renderMore() {
-  const tiles = [['reading', 'Reading', 'What you’re reading & up next'], ['news', 'News', 'Papers, jobs & posts for you'],
-    ['settings', 'Settings', 'Sync, budget, backup, install']];
+  const pinned = bottomTabs();
+  const keys = [...SIDEBAR.filter((k) => !pinned.includes(k)), 'settings'];
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'More')),
-    h('div', { class: 'tiles' }, tiles.map(([k, name, sub]) => h('a', { class: 'tile card', href: `#/${k}` },
-      icon(k, 26), h('span', null, h('b', null, name), h('small', null, sub))))));
+    h('div', { class: 'tiles' }, keys.map((k) => h('a', { class: 'tile card', href: `#/${k}` },
+      icon(ROUTE_META[k].icon, 26), h('span', null, h('b', null, ROUTE_META[k].title), h('small', null, ROUTE_META[k].sub))))),
+    h('p', { class: 'muted small' }, 'Choose which sections sit in the bottom bar under Settings → Bottom bar.'));
 }

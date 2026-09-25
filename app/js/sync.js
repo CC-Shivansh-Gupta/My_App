@@ -136,7 +136,7 @@ export async function syncNow() {
 // Push soon after local edits; pull when the app comes back to the foreground.
 export function start() {
   store.subscribe((source) => {
-    if (source !== 'local' || !cfg.token) return;
+    if (source === 'remote' || !cfg.token) return;
     clearTimeout(timer);
     timer = setTimeout(syncNow, 1500);
   });

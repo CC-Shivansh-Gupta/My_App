@@ -53,8 +53,18 @@ export function taskSort(a, b) {
 export function addTask(parsed) {
   return store.put('tasks', {
     title: parsed.title, due: parsed.date || null, priority: parsed.priority || 0,
-    tag: parsed.tag || null, done: false, notes: '',
+    tag: parsed.tag || null, done: false, notes: '', heading: parsed.heading || null,
   });
+}
+
+// Headings group tasks into named sections ("Work", "Home", "Trip to Goa"…).
+export function taskHeadings() {
+  return store.all('taskGroups').sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
+}
+
+export function addHeading(name) {
+  const last = taskHeadings().pop();
+  return store.put('taskGroups', { name: name.trim(), order: (last?.order ?? last?.createdAt ?? 0) + 1, collapsed: false });
 }
 
 export function toggleTask(t, done) {

@@ -7,10 +7,14 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 - **Today**: one screen with today's schedule, to-dos, tasks due, habits to tick, what I spent, what I'm reading, and top news.
 - **Calendar**: month view plus a day agenda. Events can repeat (daily, weekdays, weekly, monthly, yearly).
 - **To-dos**: a daily list. Anything unfinished carries over, and one tap moves it to today.
-- **Tasks**: everything on my plate, grouped into overdue / today / next 7 days / later / someday, with tags and priorities. "Do today" puts a task on today's list.
+- **Tasks**: everything on my plate, grouped under my own **headings** (Work, Home, Trip…), which I can collapse, rename, reorder and drag tasks between. There's also a view by due date. Tasks have tags and priorities, and "Do today" puts a task on today's list.
 - **Reading list**: what I'm reading now, what's up next, and what I've finished, with progress, ratings and notes.
 - **Habits**: tick the week in a grid, with streaks, a 30-day completion trend and a heatmap per habit.
 - **Money**: log an expense in one line ("250 lunch"). The category is guessed for you. Shows a monthly total vs last month, a budget meter, daily and 6-month charts, and a breakdown by category.
+- **Goals**: monthly, yearly and life goals. Each one is tracked as done/not done, as milestones, or as a number towards a target ("Read 24 books"). A goal can support a bigger one (month → year → life), and unfinished goals can be carried into the next month.
+- **Gym**: a workout logger modelled on Strong. It has routine templates plus example Push/Pull/Legs/Full-body ones, and ~100 built-in exercises plus custom ones. Each set shows what I did last time, and sets can be marked warm-up, drop or failure. A rest timer starts itself after each set, finishing shows a summary with PRs, and there are history, exercise records and charts, a body-weight log and a plate calculator. Finishing a workout ticks an "Exercise" habit automatically.
+- **Notes**: quick notes with search and pinning. Lines like `[ ] milk` become tickable checklists, and I can dictate a note by voice.
+- **Voice assistant**: tap the mic (or press V) and speak. It understands things like "remind me to call the bank tomorrow", "spent 250 on lunch", "schedule dentist Friday at 3 pm", "I meditated", "start push workout", "log my weight 72.5", "set a goal to read 24 books this year", "add task book flights under trip heading", "note: gate code 4512", "what's on tomorrow?", "how much did I spend this month?" and "brief me". It answers out loud. Commands are understood on the device (`app/js/intents.js`), so there's no paid AI service. If a browser has no speech recognition, you can type a command or use the keyboard's 🎤.
 - **News**: papers, job posts and articles pulled every 3 hours from the feeds in [`news/sources.json`](news/sources.json) and ranked by my interest keywords. One tap saves an item to the reading list.
 
 ### Adding things with minimal effort
@@ -21,7 +25,8 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
   - `Deep Work by Cal Newport`
 - Each section also has an inline box: type and press Enter.
 - Deleting shows an **Undo** toast instead of an "are you sure?" dialog.
-- Keyboard shortcuts on a laptop: `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `M` Money, `R` Reading, `W` News.
+- Keyboard shortcuts on a laptop: `N` add, `V` voice, `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `M` Money, `O` Notes, `R` Reading, `W` News.
+- On a phone you choose which five sections sit in the bottom bar (Settings → Bottom bar). The rest are under More.
 
 ## How it runs everywhere for free
 

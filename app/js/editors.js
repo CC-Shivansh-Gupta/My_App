@@ -4,14 +4,18 @@ import * as store from './store.js';
 import * as D from './dates.js';
 import * as M from './models.js';
 import { h, sheet, closeSheet, field, segmented, toast, removeWithUndo, money, icon } from './ui.js';
+import { dictateButton } from './voice.js';
+import { addGoal, currentPeriod } from './views/goals.js';
 
-const KINDS = [['todo', 'To-do'], ['task', 'Task'], ['event', 'Event'], ['expense', 'Expense'], ['reading', 'Reading']];
+const KINDS = [['todo', 'To-do'], ['task', 'Task'], ['event', 'Event'], ['expense', 'Expense'], ['note', 'Note'], ['goal', 'Goal'], ['reading', 'Book']];
 const HINTS = {
   todo: 'e.g. “Buy milk” or “Call bank tomorrow”',
   task: 'e.g. “Finish report fri !high #work”',
   event: 'e.g. “Dentist tomorrow 3pm” or “Standup mon 9-9:30am”',
   expense: 'e.g. “250 lunch” or “1200 groceries yesterday”',
   reading: 'e.g. “Deep Work by Cal Newport”',
+  note: 'Type or dictate a note',
+  goal: 'e.g. “Read 24 books this year” or “Visit Japan someday”',
 };
 
 let lastKind = 'todo';
@@ -48,7 +52,7 @@ export function quickAdd({ kind, date, text = '' } = {}) {
 
   const body = h('div', { class: 'qa' },
     segmented(KINDS, kind, (k) => { lastKind = k; quickAdd({ kind: k, date, text: input.value }); }, { small: true }),
-    input, preview, extra);
+    h('div', { class: 'qa-row' }, input, dictateButton(input)), preview, extra);
   sheet('Add', body, { actions: [h('button', { class: 'btn primary', onclick: save }, 'Add')] });
   update();
   requestAnimationFrame(() => input.focus());
@@ -70,6 +74,11 @@ function previewFor(kind, text, base, category) {
     const { title, author } = splitBy(text);
     return [chip(title), author ? chip(`by ${author}`) : null];
   }
+  if (kind === 'note') return [chip('📝 Note')];
+  if (kind === 'goal') {
+    const g = goalFromText(text);
+    return [chip(g.title), chip(g.horizon === 'life' ? '🌟 Life goal' : g.horizon === 'year' ? '📆 This year' : '🗓 This month')];
+  }
   const p = D.parseSmart(text, base);
   const out = [chip(p.title || '…')];
   if (kind === 'event' || p.date) out.push(chip(`📅 ${D.fmtDate(p.date || base)}`));
@@ -77,6 +86,17 @@ function previewFor(kind, text, base, category) {
   if (p.priority) out.push(chip(['', 'Low', 'Medium', 'High'][p.priority] + ' priority'));
   if (p.tag) out.push(chip(`#${p.tag}`));
   return out;
+}
+
+// "Read 24 books this year" → year goal; "… someday" / "life: …" → life goal; default this month.
+function goalFromText(text) {
+  let horizon = 'month';
+  const title = text
+    .replace(/^\s*(life|year|yearly|month|monthly)\s*[:-]\s*/i, (_, w) => { horizon = /^life/i.test(w) ? 'life' : /^year/i.test(w) ? 'year' : 'month'; return ''; })
+    .replace(/\s+(this|in the)\s+(year|month)\s*$/i, (_, _a, u) => { horizon = u.toLowerCase(); return ''; })
+    .replace(/\s+(someday|one day|in (my )?life(time)?|before i die)\s*$/i, () => { horizon = 'life'; return ''; })
+    .trim();
+  return { title, horizon };
 }
 
 function splitBy(text) {
@@ -91,6 +111,8 @@ function saveQuick(kind, text, base, category) {
     M.addExpense({ ...p, category: category || p.category });
     return `Spent ${money(p.amount)}`;
   }
+  if (kind === 'note') { store.put('notes', { text, pinned: false }); return 'Note saved'; }
+  if (kind === 'goal') { const g = goalFromText(text); addGoal({ title: g.title, horizon: g.horizon, period: currentPeriod(g.horizon) }); return 'Goal added'; }
   if (kind === 'reading') {
     const { title, author } = splitBy(text);
     const isUrl = /^https?:\/\//i.test(title);
@@ -194,11 +216,13 @@ export function editTask(t = {}) {
   const tags = [...new Set(store.all('tasks').map((x) => x.tag).filter(Boolean))];
   const tag = input(t.tag || '', { placeholder: 'e.g. work, home', list: 'tag-list' });
   const notes = h('textarea', { rows: 4, placeholder: 'Notes' }, t.notes || '');
+  const heading = select([['', '— No heading —'], ...M.taskHeadings().map((g) => [g.id, g.name])], t.heading || '');
   const save = () => {
     if (!title.value.trim()) { title.focus(); return; }
     store.put('tasks', {
       ...t, title: title.value.trim(), due: due.value || null, priority: Number(prio.value),
       tag: tag.value.trim().replace(/^#/, '') || null, notes: notes.value, done: t.done || false,
+      heading: heading.value || null,
     });
     closeSheet();
   };
@@ -212,7 +236,7 @@ export function editTask(t = {}) {
   sheet(isNew ? 'New task' : 'Task', h('div', { class: 'form' },
     title,
     h('div', { class: 'row2' }, field('Due', due), field('Priority', prio)),
-    field('Tag', tag), h('datalist', { id: 'tag-list' }, tags.map((x) => h('option', { value: x }))),
+    h('div', { class: 'row2' }, field('Heading', heading), field('Tag', tag)), h('datalist', { id: 'tag-list' }, tags.map((x) => h('option', { value: x }))),
     notes), { actions });
 }
 

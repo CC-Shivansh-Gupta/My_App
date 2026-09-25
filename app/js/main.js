@@ -14,20 +14,20 @@ import * as habits from './views/habits.js';
 import * as expenses from './views/expenses.js';
 import * as news from './views/news.js';
 import * as settings from './views/settings.js';
+import * as notes from './views/notes.js';
+import * as gym from './views/gym.js';
+import * as goals from './views/goals.js';
+import * as voice from './voice.js';
+import * as G from './gym/model.js';
+import { ROUTE_META, SIDEBAR, bottomTabs } from './routes.js';
 
-const ROUTES = {
-  today: { title: 'Today', icon: 'today', view: today, add: 'todo' },
-  calendar: { title: 'Calendar', icon: 'calendar', view: calendar, add: 'event' },
-  tasks: { title: 'Tasks', icon: 'tasks', view: tasks, add: 'task' },
-  habits: { title: 'Habits', icon: 'habits', view: habits, add: 'todo' },
-  money: { title: 'Money', icon: 'money', view: expenses, add: 'expense' },
-  reading: { title: 'Reading', icon: 'reading', view: reading, add: 'reading' },
-  news: { title: 'News', icon: 'news', view: news, add: 'reading' },
-  settings: { title: 'Settings', icon: 'settings', view: settings, add: 'todo' },
-  more: { title: 'More', icon: 'more', view: { render: settings.renderMore }, add: 'todo' },
+const VIEWS = {
+  today: [today, 'todo'], calendar: [calendar, 'event'], tasks: [tasks, 'task'], habits: [habits, 'todo'],
+  goals: [goals, 'goal'], gym: [gym, 'todo'], money: [expenses, 'expense'], notes: [notes, 'note'],
+  reading: [reading, 'reading'], news: [news, 'reading'], settings: [settings, 'todo'],
+  more: [{ render: settings.renderMore }, 'todo'],
 };
-const SIDEBAR = ['today', 'calendar', 'tasks', 'habits', 'money', 'reading', 'news'];
-const BOTTOM = ['today', 'calendar', 'tasks', 'habits', 'money', 'more'];
+const ROUTES = Object.fromEntries(Object.entries(VIEWS).map(([k, [view, add]]) => [k, { ...ROUTE_META[k], view, add }]));
 
 let current = null;
 let currentDay = D.today();
@@ -35,6 +35,7 @@ const main = h('main', { id: 'main', tabindex: '-1' });
 const sidebar = h('nav', { class: 'sidebar', 'aria-label': 'Sections' });
 const bottom = h('nav', { class: 'bottombar', 'aria-label': 'Sections' });
 const syncDot = h('span', { class: 'sync-dot' });
+const workoutPill = h('a', { class: 'workout-pill', href: '#/gym' });
 
 function route() {
   const name = (location.hash.replace(/^#\/?/, '').split('/')[0]) || 'today';
@@ -43,7 +44,7 @@ function route() {
 
 function navLink(name, { badge } = {}) {
   const r = ROUTES[name];
-  const active = current === name || (name === 'more' && ['reading', 'news', 'settings'].includes(current));
+  const active = current === name || (name === 'more' && Boolean(current) && !bottomTabs().includes(current));
   return h('a', { href: `#/${name}`, class: ['nav-link', active && 'active'], 'aria-current': active ? 'page' : null },
     icon(r.icon), h('span', null, r.title), badge ? h('i', { class: 'nav-badge' }, badge > 99 ? '99+' : badge) : null);
 }
@@ -58,7 +59,11 @@ function renderNav() {
     h('div', { class: 'brand' }, h('img', { src: 'icons/icon.svg', alt: '', width: 28, height: 28 }), h('span', null, 'Daybook')),
     ...SIDEBAR.map((n) => navLink(n, { badge: n === 'news' ? newsCount : 0 })),
     h('div', { class: 'sidebar-foot' }, navLink('settings'), h('a', { href: '#/settings', class: 'sync-status' }, syncDot)));
-  bottom.replaceChildren(...BOTTOM.map((n) => navLink(n, { badge: n === 'more' ? newsCount : 0 })));
+  const tabs = bottomTabs();
+  bottom.replaceChildren(...[...tabs, 'more'].map((n) => navLink(n, { badge: n === 'more' && !tabs.includes('news') ? newsCount : n === 'news' ? newsCount : 0 })));
+  const w = G.activeWorkout();
+  workoutPill.hidden = !w || current === 'gym';
+  if (w) workoutPill.replaceChildren(icon('gym', 18), h('span', null, w.name), h('span', { class: 'w-clock' }, G.fmtClock((Date.now() - w.startedAt) / 1000)));
 }
 
 export function rerender() {
@@ -93,6 +98,10 @@ export function rerender() {
   }
 }
 
+function openVoice() {
+  voice.openVoice({ go: (r) => { location.hash = `#/${r}`; } });
+}
+
 function boot() {
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
@@ -100,9 +109,11 @@ function boot() {
 
   const fab = h('button', { class: 'fab', 'aria-label': 'Add (N)', 'data-tip': 'Add something (N)',
     onclick: () => quickAdd({ kind: ROUTES[current].add }) }, icon('plus', 26));
-  document.body.append(h('div', { class: 'shell' }, sidebar, main), bottom, fab);
+  const micFab = h('button', { class: 'fab mic-fab', 'aria-label': 'Voice (V)', 'data-tip': 'Voice assistant (V)',
+    onclick: openVoice }, icon('mic', 24));
+  document.body.append(h('div', { class: 'shell' }, sidebar, main), bottom, workoutPill, micFab, fab);
 
-  store.subscribe(() => rerender());
+  store.subscribe((source) => { if (source !== 'silent') rerender(); });
   sync.onStatus(() => renderNav());
   news.setRerender(rerender);
   window.addEventListener('hashchange', rerender);
@@ -112,8 +123,10 @@ function boot() {
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
     if (e.key === 'Escape' && isSheetOpen()) { closeSheet(); return; }
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'n' || e.key === 'N' || e.key === '+') { e.preventDefault(); quickAdd({ kind: ROUTES[current].add }); }
-    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', m: 'money', r: 'reading', w: 'news' }[e.key];
+    if (isSheetOpen()) return;
+    if (e.key === 'n' || e.key === 'N' || e.key === '+') { e.preventDefault(); quickAdd({ kind: ROUTES[current].add }); return; }
+    if (e.key === 'v' || e.key === 'V') { e.preventDefault(); openVoice(); return; }
+    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', g: 'goals', y: 'gym', m: 'money', o: 'notes', r: 'reading', w: 'news' }[e.key];
     if (jump && !isSheetOpen()) location.hash = `#/${jump}`;
   });
 
@@ -125,6 +138,7 @@ function boot() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { checkDay(); news.load(); } });
 
   rerender();
+  gym.startTicker();
   sync.start();
   news.load();
 

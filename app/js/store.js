@@ -3,7 +3,7 @@
 // tombstone so they can sync. Merging two copies keeps the newest record per id.
 
 export const COLLECTIONS = ['events', 'todos', 'tasks', 'reading', 'habits', 'habitLogs',
-  'expenses', 'newsMarks', 'prefs'];
+  'expenses', 'newsMarks', 'prefs', 'notes', 'workouts', 'templates', 'exercises', 'measurements', 'goals', 'taskGroups'];
 
 const KEY = 'daybook.data.v1';
 const TOMBSTONE_TTL = 120 * 86400000;
@@ -69,7 +69,9 @@ export function get(col, id) {
   return r && !r.deleted ? r : null;
 }
 
-export function put(col, rec) {
+// `silent` saves (and syncs) without re-rendering the screen — used while typing
+// into a live workout so inputs don't get rebuilt under your fingers.
+export function put(col, rec, { silent = false } = {}) {
   const id = rec.id || uid();
   const prev = db[col][id];
   const base = prev && !prev.deleted ? prev : { createdAt: Date.now() };
@@ -77,7 +79,7 @@ export function put(col, rec) {
   delete next.deleted;
   db[col][id] = next;
   persist();
-  emit('local');
+  emit(silent ? 'silent' : 'local');
   return next;
 }
 

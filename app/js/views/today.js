@@ -6,6 +6,8 @@ import * as M from '../models.js';
 import * as E from '../editors.js';
 import { h, icon, section, checkbox, quickInput, empty, money, toast } from '../ui.js';
 import { topNews } from './news.js';
+import * as gym from './gym.js';
+import * as goals from './goals.js';
 
 let day = null; // date being viewed; null = follow the real "today"
 
@@ -26,8 +28,8 @@ export function render(ctx) {
 
   return h('div', { class: 'page' }, header,
     h('div', { class: 'grid-2' },
-      h('div', { class: 'stack' }, todoCard(date, isToday), scheduleCard(date)),
-      h('div', { class: 'stack' }, habitsCard(date), spendCard(date), readingCard(), isToday ? newsCard() : null)));
+      h('div', { class: 'stack' }, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null),
+      h('div', { class: 'stack' }, isToday ? gym.todayCard() : null, habitsCard(date), spendCard(date), readingCard(), isToday ? newsCard() : null)));
 }
 
 export function onLeave() { day = null; }
