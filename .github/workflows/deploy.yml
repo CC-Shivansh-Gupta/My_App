@@ -38,6 +38,7 @@ jobs:
           node-version: 22
       - name: Assemble site
         run: |
+          node scripts/make-icons.mjs
           mkdir -p _site
           cp -r app/. _site/
           # Bust the service-worker cache on every deploy so devices pick up updates.
