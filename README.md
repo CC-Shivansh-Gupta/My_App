@@ -1,6 +1,8 @@
 # Daybook
 
-My personal all-in-one tracker. Everything in one place, built so that adding something takes as little effort as possible.
+My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My_App/**
+
+ Everything in one place, built so that adding something takes as little effort as possible.
 
 - **Today**: one screen with today's schedule, to-dos, tasks due, habits to tick, what I spent, what I'm reading, and top news.
 - **Calendar**: month view plus a day agenda. Events can repeat (daily, weekdays, weekly, monthly, yearly).
