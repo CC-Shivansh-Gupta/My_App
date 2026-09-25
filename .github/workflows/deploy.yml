@@ -1,0 +1,60 @@
+# Builds the site, pulls fresh news, and publishes to GitHub Pages.
+# Runs on every push to the default branch, every 3 hours, and on demand.
+name: Deploy
+
+on:
+  push:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  build:
+    needs: test
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp -r app/. _site/
+          # Bust the service-worker cache on every deploy so devices pick up updates.
+          sed -i "s/const CACHE = 'daybook-v1';/const CACHE = 'daybook-${GITHUB_SHA::8}';/" _site/sw.js
+      - name: Fetch news
+        run: node scripts/fetch-news.mjs _site/data
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,17 @@
+{
+  "_help": "Feeds polled every 3 hours by .github/workflows/deploy.yml. category is one of: papers, jobs, news (or any word you like - it becomes a tab). Optional 'keywords' keeps only items mentioning at least one of them (useful for very busy feeds). Your personal interest keywords are set inside the app (News tab) and used for ranking.",
+  "maxAgeDays": 21,
+  "maxPerFeed": 120,
+  "feeds": [
+    { "name": "arXiv cs.AI", "category": "papers", "url": "https://rss.arxiv.org/rss/cs.AI" },
+    { "name": "arXiv cs.LG", "category": "papers", "url": "https://rss.arxiv.org/rss/cs.LG" },
+    { "name": "arXiv cs.CL", "category": "papers", "url": "https://rss.arxiv.org/rss/cs.CL" },
+    { "name": "HN Who's Hiring", "category": "jobs", "url": "https://hnrss.org/whoishiring/jobs" },
+    { "name": "YC startup jobs", "category": "jobs", "url": "https://hnrss.org/jobs" },
+    { "name": "We Work Remotely", "category": "jobs", "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss" },
+    { "name": "Remote OK", "category": "jobs", "url": "https://remoteok.com/remote-jobs.rss" },
+    { "name": "Hacker News", "category": "news", "url": "https://hnrss.org/frontpage?points=150" },
+    { "name": "The Gradient", "category": "news", "url": "https://thegradient.pub/rss/" },
+    { "name": "Google Research blog", "category": "news", "url": "https://research.google/blog/rss/" }
+  ]
+}
