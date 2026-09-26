@@ -21,6 +21,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 - **Penalties**: bad days cost XP. That covers missed habits, overdue tasks, to-dos left undone, days over your screen-time limit, months over budget, and **slips on habits you're breaking** (smoking, junk food, doomscrolling… each with its own penalty). Every clean day earns a little back. Severity can be off, gentle, normal or hardcore.
 - **Friends**: invite your partner and friends to see each other's level and progress. There's a leaderboard (weekly XP, streaks, workouts, habits, learnings, lowest screen time), a feed with reactions, challenges ("most workouts this week"), and share buttons on books, shows, learnings, notes, goals and workouts, with "add to mine". Only a summary is shared, never money, notes or raw entries.
 - **Notes**: quick notes with search and pinning. Lines like `[ ] milk` become tickable checklists, and I can dictate a note by voice.
+- **Knowledge map**: an Obsidian-style graph of my second brain. It shows my Obsidian vault, read from its private GitHub repo, together with Daybook's notes, learnings, books, shows and goals. Tap a dot to read the page with its links and backlinks, open it in Obsidian, or **Copy for AI** (the page plus its neighbours, ready to paste into any chatbot). **Send to inbox** drops a thought into the vault's `raw/inbox/`, and **Copy Daybook to vault** writes my learnings, reading, goals and notes to `raw/daybook/` so assistants can ingest them. In notes, `[[Page name]]` makes a link (typing `[[` suggests pages) and tapping it opens the map. Without a vault, the map still shows Daybook's own items.
 - **Voice assistant**: tap the mic (or press V) and speak. It understands things like "remind me to call the bank tomorrow", "spent 250 on lunch", "schedule dentist Friday at 3 pm", "I meditated", "start push workout", "log my weight 72.5", "set a goal to read 24 books this year", "add task book flights under trip heading", "note: gate code 4512", "what's on tomorrow?", "how much did I spend this month?" and "brief me". It answers out loud. Commands are understood on the device (`app/js/intents.js`), so there's no paid AI service. If a browser has no speech recognition, you can type a command or use the keyboard's 🎤.
 - **News**: papers, job posts and articles pulled every 3 hours from the feeds in [`news/sources.json`](news/sources.json) and ranked by my interest keywords. One tap saves an item to the reading list.
 
@@ -32,7 +33,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
   - `Deep Work by Cal Newport`
 - Each section also has an inline box: type and press Enter.
 - Deleting shows an **Undo** toast instead of an "are you sure?" dialog.
-- Keyboard shortcuts on a laptop: `N` add, `V` voice, `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `U` Routine, `M` Money, `O` Notes, `L` Learnings, `R` Reading, `B` Watch list, `W` News, `S` Stats, `F` Friends.
+- Keyboard shortcuts on a laptop: `N` add, `V` voice, `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `U` Routine, `M` Money, `O` Notes, `I` Knowledge map, `L` Learnings, `R` Reading, `B` Watch list, `W` News, `S` Stats, `F` Friends.
 - On a phone you choose which five sections sit in the bottom bar (Settings → Bottom bar). The rest are under More.
 
 ## How it runs everywhere for free
@@ -55,6 +56,10 @@ My data never goes into this repo. It stays in each device's storage and in my s
    - **Android:** open it in Chrome → ⋮ → **Install app**.
    - **Laptop:** open it in Chrome or Edge → click the install icon in the address bar. (On a Mac with Safari: File → **Add to Dock**.)
 4. **Turn on sync:** create a [classic token with only the `gist` scope](https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync) and set it to no expiration. In the app go to **Settings → Sync** and paste the token, then do the same on each device. The first device creates the gist and the others find it automatically.
+
+## Second brain setup (one-time, free)
+
+The vault is a separate private repo (`second-brain`) of plain Markdown that Obsidian syncs to every device with the free **FIT** plugin, and that Claude, ChatGPT/Codex, Gemini/Jules and Copilot can read. Any other chatbot can be given its auto-built `output/context-pack.md`. Its **Start here** page has the full setup for each device and assistant. To show it in Daybook, go to **Knowledge map → Connect your vault** and enter the repo name plus a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with *Contents: Read and write* on that repo only. The token is stored on the device and never synced.
 
 ## Friends setup (one-time, free)
 

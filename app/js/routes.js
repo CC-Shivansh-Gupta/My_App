@@ -12,6 +12,7 @@ export const ROUTE_META = {
   gym: { title: 'Gym', icon: 'gym', sub: 'Workouts, routines and PRs' },
   money: { title: 'Money', icon: 'money', sub: 'Spending and budget' },
   notes: { title: 'Notes', icon: 'notes', sub: 'Quick notes and checklists' },
+  brain: { title: 'Knowledge map', icon: 'graph', sub: 'Your second brain, linked' },
   learn: { title: 'Learnings', icon: 'learn', sub: 'What you learn, reviewed so it sticks' },
   reading: { title: 'Reading', icon: 'reading', sub: 'What you’re reading & up next' },
   watch: { title: 'Watch list', icon: 'watch', sub: 'Movies, shows & videos' },
@@ -23,7 +24,7 @@ export const ROUTE_META = {
   more: { title: 'More', icon: 'more', sub: '' },
 };
 
-export const SIDEBAR = ['today', 'calendar', 'tasks', 'habits', 'routine', 'goals', 'gym', 'money', 'notes', 'learn', 'reading', 'watch', 'news', 'screen', 'stats', 'friends'];
+export const SIDEBAR = ['today', 'calendar', 'tasks', 'habits', 'routine', 'goals', 'gym', 'money', 'notes', 'brain', 'learn', 'reading', 'watch', 'news', 'screen', 'stats', 'friends'];
 export const DEFAULT_TABS = ['today', 'calendar', 'tasks', 'habits', 'money'];
 
 // The five sections pinned to the phone's bottom bar (the sixth slot is always "More").
