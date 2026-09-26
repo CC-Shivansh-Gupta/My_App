@@ -927,3 +927,6 @@ button.tpl-card:hover { border-color: var(--axis); background: var(--surface-2);
 .brief-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.4; }
 .agent-sugg .icon-btn.good { color: var(--good-ink); }
 .agent-run .row-main { gap: 2px; }
+.stack-sm { display: flex; flex-direction: column; gap: 10px; }
+.ai-summary { margin: 0; font-size: 14.5px; line-height: 1.45; }
+.ai-tag { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 99px; font-size: 11.5px; font-weight: 650; background: var(--accent-wash); color: var(--accent-ink); vertical-align: 1px; }

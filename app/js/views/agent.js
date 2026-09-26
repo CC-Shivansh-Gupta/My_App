@@ -14,9 +14,9 @@ export function render(ctx) {
   const ran = A.runs(1).length > 0;
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'Agent'),
-      h('p', { class: 'muted' }, 'A morning brief and suggestions from the agent in your second-brain repo. Nothing changes until you approve it.')),
+      h('p', { class: 'muted' }, 'Briefs, check-ins and suggestions from the agent in your second-brain repo. Nothing changes until you approve it.')),
     ran ? null : setupCard(),
-    briefCard(), inboxCard(), notifyCard(ctx), autonomyCard(), logCard());
+    briefCard(), inboxCard(), weekCard(), notifyCard(ctx), autonomyCard(), aiCard(), logCard());
 }
 
 // ---- Today card ----------------------------------------------------------------------------------
@@ -25,7 +25,7 @@ export function todayCard() {
   const list = A.pending();
   if (!brief && !list.length) return null;
   return section('Agent', h('a', { class: 'btn ghost sm', href: '#/agent' }, list.length ? `${list.length} to review` : 'Open'),
-    brief ? h('ul', { class: 'brief-lines' }, brief.brief.map((l) => h('li', null, l))) : null,
+    brief ? briefBody(brief) : null,
     list.length ? h('ul', { class: 'list compact' }, list.slice(0, 3).map(suggestionRow)) : null);
 }
 
@@ -48,8 +48,35 @@ function suggestionRow(s) {
 function briefCard() {
   const brief = A.latestBrief(D.today());
   return section('This morning', brief ? h('span', { class: 'count' }, new Date(brief.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : null,
-    brief ? h('ul', { class: 'brief-lines' }, brief.brief.map((l) => h('li', null, l)))
-      : empty('No brief yet today. The agent runs every morning at about 7.'));
+    brief ? briefBody(brief) : empty('No brief yet today. The agent runs every morning at about 7, checks in at about 9 in the evening, and reviews your week on Sunday evenings.'));
+}
+
+function briefBody(run) {
+  return h('div', { class: 'stack-sm' },
+    run.aiSummary ? h('p', { class: 'ai-summary' }, h('span', { class: 'ai-tag', 'data-tip': `Written by AI${run.ai?.model ? ` (${run.ai.model})` : ''}` }, '✨ AI'), run.aiSummary) : null,
+    h('ul', { class: 'brief-lines' }, run.brief.map((l) => h('li', null, l))));
+}
+
+function weekCard() {
+  const run = A.latestRun('weekly-review', D.addDays(D.today(), -6));
+  if (!run) return null;
+  return section('Your week', h('span', { class: 'count' }, `Week to ${D.fmtDate(run.date)}`), briefBody(run));
+}
+
+function aiCard() {
+  const s = A.aiSettings();
+  const last = A.runs(30).find((r) => r.ai && r.ai.status !== 'off');
+  const status = !last ? null : last.ai.status === 'ok' ? `Last used ${D.fmtDate(last.date)}${last.ai.model ? ` · ${last.ai.model}` : ''}`
+    : last.ai.status === 'no key' ? 'No AI key yet: add the AI_API_KEY secret in second-brain'
+    : `Last attempt failed (${last.ai.error || 'error'}); the brief went out without it`;
+  return section('AI (optional)', h('span', { class: ['badge', s.summary || s.notes ? 'good' : ''] }, s.summary || s.notes ? 'On' : 'Off'),
+    h('p', { class: 'small muted' }, 'Uses a free AI key you add to second-brain (Groq by default). When on, the brief’s lines, and for “Find tasks” your notes changed since the last run, are sent to that AI provider. Tasks it finds still wait for your approval.'),
+    status ? h('p', { class: 'small' }, status) : null,
+    h('div', { class: 'form' },
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, '✨ Short written summary on the brief and weekly review'),
+        segmented([[false, 'Off'], [true, 'On']], s.summary, (v) => A.setAI('summary', v), { small: true })),
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, '📝 Find tasks hidden in my notes (morning)'),
+        segmented([[false, 'Off'], [true, 'On']], s.notes, (v) => A.setAI('notes', v), { small: true }))));
 }
 
 function inboxCard() {
@@ -75,9 +102,9 @@ function logCard() {
   const decisions = A.decided(8);
   return section('Activity', null,
     list.length ? h('ul', { class: 'list compact' }, list.map((r) => h('li', { class: 'row agent-run' },
-      h('span', { class: 'row-emoji' }, '🤖'),
+      h('span', { class: 'row-emoji' }, A.JOBS[r.job || 'morning-brief']?.emoji || '🤖'),
       h('span', { class: 'row-main' },
-        h('span', { class: 'row-title' }, `Morning brief · ${D.fmtDate(r.date)}`),
+        h('span', { class: 'row-title' }, `${A.JOBS[r.job || 'morning-brief']?.title || r.job} · ${D.fmtDate(r.date)}`),
         h('span', { class: 'row-sub' }, r.summary),
         ...(r.did || []).map((d) => h('span', { class: 'row-sub' }, `✓ ${d}`))),
       h('span', { class: 'row-sub' }, new Date(r.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })))))
