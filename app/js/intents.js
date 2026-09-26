@@ -254,9 +254,10 @@ export function parseCommand(input, base = todayStr()) {
       .replace(/\b(?:medium|normal) priority\b/i, () => { priority = 2; return ' '; })
       .replace(/\blow priority\b/i, () => { priority = 1; return ' '; });
     const p = parseSmart(body, base);
-    const out = { type: 'task', title: tidyTitle(p.title.replace(/\s+(?:by|due)\s*$/i, '')), due: p.date, priority: p.priority || priority, tag: p.tag };
+    const taskTitle = (x) => tidyTitle(x.replace(/\s+(?:by|due)\s*$/i, ''));
+    const out = { type: 'task', title: taskTitle(p.title), due: p.date, priority: p.priority || priority, tag: p.tag };
     if (heading) out.heading = heading;
-    return out;
+    return withItems(out, body, base, TASK_AGAIN, (x) => ({ title: taskTitle(x.title), due: x.date || p.date, priority: x.priority || out.priority, tag: x.tag || out.tag }));
   }
 
   // ---- to-dos (default) ----
@@ -268,11 +269,46 @@ export function parseCommand(input, base = todayStr()) {
     const note = raw.replace(am[0], ' ').replace(/\s+/g, ' ').trim();
     if (note) return { type: 'expense', amount: Number(am[1].replace(/,/g, '')), note, date: base, category: null };
   }
-  const p = parseSmart(raw.replace(todoLead, ' ').replace(toList, ''), base);
+  const todoBody = raw.replace(todoLead, ' ').replace(toList, '');
+  const p = parseSmart(todoBody, base);
   if (p.time && !todoLead.test(raw)) {
     return { type: 'event', title: tidyTitle(p.title) || 'Event', date: p.date || base, time: p.time, endTime: p.endTime };
   }
-  return { type: 'todo', title: tidyTitle(p.title), date: p.date || base };
+  const out = { type: 'todo', title: tidyTitle(p.title), date: p.date || base };
+  return withItems(out, todoBody, base, TODO_AGAIN, (x) => ({ title: tidyTitle(x.title), date: x.date || out.date }));
+}
+
+// ---- several things in one breath ------------------------------------------------------------
+// "add task write the report and email John" → two tasks. A lone word after a longer
+// phrase ("call mom and dad", "buy salt and pepper") reads as one item; an explicit
+// list with commas ("milk, eggs and bread") always splits.
+const LIST_SPLIT = /\s*[,;]\s*(?:and\s+|then\s+|also\s+)*|\s+(?:and then|and also|and)\s+/i;
+const TASK_AGAIN = /^(?:add\s+)?(?:(?:a|an|another|new)\s+)?task\b[\s:,-]*/i;
+const TODO_AGAIN = /^(?:remind me to|remind me|remember to|don'?t forget to|i need to|i have to|i also need to|add (?:a )?to-?do|add)\b[\s:,-]*/i;
+
+export function splitItems(text, { force = false } = {}) {
+  const parts = text.split(LIST_SPLIT).map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return [text.trim()];
+  const words = (x) => x.split(/\s+/).length;
+  if (!force && !/[,;]/.test(text) && parts.length === 2 && words(parts[0]) > 1 && words(parts[1]) === 1) return [text.trim()];
+  return parts;
+}
+
+// Adds `items` (the split-up list) or `alt` (a split the user can opt into) to a parsed
+// to-do / task. `again` strips a repeated lead ("... and add task Y"); `make` builds an item.
+function withItems(out, body, base, again, make) {
+  const parse = (parts) => {
+    const xs = parts.map((x, i) => parseSmart(i ? x.replace(again, '') : x, base));
+    const shared = xs.find((x) => x.date)?.date;
+    return xs.filter((x) => tidyTitle(x.title)).map((x) => make({ ...x, date: x.date || shared }));
+  };
+  const all = splitItems(body, { force: true });
+  if (all.length < 2) return out;
+  const items = parse(all);
+  if (items.length < 2) return out;
+  if (splitItems(body).length > 1) out.items = items;
+  else out.alt = items;
+  return out;
 }
 
 function splitBy(text) {

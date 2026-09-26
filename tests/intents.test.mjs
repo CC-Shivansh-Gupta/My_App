@@ -110,6 +110,28 @@ test('task headings', () => {
   assert.equal(pc('what are my goals').what, 'goals');
 });
 
+test('several to-dos or tasks in one sentence', () => {
+  const titles = (r) => (r.items || []).map((x) => x.title);
+  assert.deepEqual(titles(pc('add task write the report and email John')), ['Write the report', 'Email John']);
+  assert.deepEqual(titles(pc('add task1 and task2')), ['Task1', 'Task2']);
+  assert.deepEqual(titles(pc('buy milk, eggs and bread')), ['Buy milk', 'Eggs', 'Bread']);
+  assert.deepEqual(titles(pc('Add task write report, and then task email John.')), ['Write report', 'Email John']);
+  // A trailing date applies to every item; the heading and priority are shared.
+  const r = pc('remind me to call the bank and pay rent tomorrow');
+  assert.deepEqual(r.items, [{ title: 'Call the bank', date: '2026-09-26' }, { title: 'Pay rent', date: '2026-09-26' }]);
+  const t = pc('add task book flights and pack bags under trip heading');
+  assert.equal(t.heading, 'trip');
+  assert.deepEqual(t.items.map((x) => x.title), ['Book flights', 'Pack bags']);
+  assert.deepEqual(pc('new task file taxes and pay GST, it\'s urgent').items.map((x) => x.priority), [3, 3]);
+  // "call mom and dad" stays one item, with the split offered as an alternative.
+  const one = pc('remind me to call mom and dad');
+  assert.equal(one.title, 'Call mom and dad');
+  assert.equal(one.items, undefined);
+  assert.deepEqual(one.alt.map((x) => x.title), ['Call mom', 'Dad']);
+  assert.equal(pc('new task file taxes, it\'s urgent').items, undefined);
+  assert.equal(pc('remind me to call mom, tomorrow').items, undefined);
+});
+
 test('learnings, watch list, day tracker, screen time', () => {
   assert.deepEqual(pc('TIL compound interest beats timing the market'), { type: 'learning', text: 'Compound interest beats timing the market', kind: 'insight' });
   assert.equal(pc('lesson: never skip the warm up').kind, 'lesson');

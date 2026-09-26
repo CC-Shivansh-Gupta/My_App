@@ -1,9 +1,9 @@
 // Offline support: network first (so updates show up immediately), cache as fallback.
-const CACHE = 'daybook-v2';
+const CACHE = 'daybook-v3';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/main.js', 'js/store.js', 'js/sync.js', 'js/dates.js', 'js/ui.js', 'js/charts.js', 'js/models.js',
-  'js/editors.js', 'js/theme.js', 'js/intents.js', 'js/voice.js', 'js/routes.js', 'js/gamify.js', 'js/vices.js', 'js/social.js', 'js/share.js', 'js/install.js', 'js/graph.js', 'js/md.js', 'js/vault.js', 'js/views/brain.js',
+  'js/editors.js', 'js/theme.js', 'js/intents.js', 'js/voice.js', 'js/whisper.js', 'js/routes.js', 'js/gamify.js', 'js/vices.js', 'js/social.js', 'js/share.js', 'js/install.js', 'js/graph.js', 'js/md.js', 'js/vault.js', 'js/views/brain.js',
   'js/gym/exercises.js', 'js/gym/model.js',
   'js/views/today.js', 'js/views/calendar.js', 'js/views/tasks.js', 'js/views/reading.js',
   'js/views/habits.js', 'js/views/expenses.js', 'js/views/news.js', 'js/views/settings.js',

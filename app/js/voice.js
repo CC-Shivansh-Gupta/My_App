@@ -1,6 +1,7 @@
 // Voice assistant: listen (browser speech recognition), understand (intents.js),
 // act on the data, and answer out loud (speech synthesis). All free and on-device
-// apart from the browser's own speech service.
+// apart from the browser's own speech service — or, if you add a key in Settings,
+// Whisper for listening and a natural cloud voice for replies (whisper.js).
 
 import * as store from './store.js';
 import * as D from './dates.js';
@@ -16,13 +17,14 @@ import * as R from './views/routine.js';
 import * as SCR from './views/screen.js';
 import * as X from './gamify.js';
 import * as V from './vices.js';
+import * as W from './whisper.js';
 
 const tidy = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
 export function supported() {
-  return Boolean(SR);
+  return Boolean(SR) || W.listeningOn();
 }
 
 export function lang() {
@@ -30,17 +32,64 @@ export function lang() {
 }
 
 // ---- Speaking ------------------------------------------------------------------------------
-export function speak(text) {
-  if (!store.pref('voiceReplies', true) || !('speechSynthesis' in window) || !text) return;
+// Browsers ship a mix of lovely and awful voices, and the first one for a language is often
+// the most robotic. Rank them: neural / premium / enhanced voices first, novelty and old
+// formant voices (eSpeak, Eloquence, macOS's Fred or Zarvox…) last.
+const GOOD = [[/\b(natural|neural)\b/i, 12], [/premium/i, 12], [/enhanced/i, 10], [/online/i, 8], [/google/i, 6],
+  [/\b(ava|zoe|evan|nathan|allison|samantha|serena|daniel|karen|moira|tessa|aria|jenny|guy|sonia|libby|neerja|prabhat|isha|rishi|kate|oliver|jamie|matilda|lee)\b/i, 3]];
+const BAD = /espeak|eloquence|compact|\b(albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|fred|junior|ralph|kathy|grandma|grandpa|rocko|shelley|flo|eddy|reed|sandy)\b/i;
+
+export function voiceScore(v, want = lang()) {
+  const vl = (v.lang || '').replace('_', '-').toLowerCase();
+  const wl = want.toLowerCase();
+  let s = vl === wl ? 20 : vl.slice(0, 2) === wl.slice(0, 2) ? 10 : -100;
+  for (const [re, pts] of GOOD) if (re.test(v.name)) s += pts;
+  if (BAD.test(v.name)) s -= 30;
+  if (v.localService === false) s += 2; // network voices are usually the neural ones
+  return s;
+}
+
+// Device voices for the current language, most natural first.
+export function voices() {
+  if (typeof speechSynthesis === 'undefined') return [];
+  return speechSynthesis.getVoices().filter((v) => voiceScore(v) > -50).sort((a, b) => voiceScore(b) - voiceScore(a));
+}
+
+// Voices load asynchronously in most browsers; run `fn` when the list changes (one listener at a time).
+export function onVoices(fn) {
+  try { speechSynthesis.onvoiceschanged = fn; } catch { /* ignore */ }
+}
+
+function deviceVoice() {
+  const list = voices();
+  const want = (W.cfg().reply || '').startsWith('device:') ? W.cfg().reply.slice(7) : '';
+  return (want && list.find((v) => v.name === want)) || list[0] || null;
+}
+
+function speakDevice(text) {
+  if (!('speechSynthesis' in window)) return;
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang();
-    const voice = speechSynthesis.getVoices().find((v) => v.lang === u.lang) || speechSynthesis.getVoices().find((v) => v.lang?.startsWith(u.lang.slice(0, 2)));
+    const voice = deviceVoice();
+    u.lang = voice?.lang || lang();
     if (voice) u.voice = voice;
-    u.rate = 1.05;
+    u.rate = 1;
+    u.pitch = 1;
     speechSynthesis.speak(u);
   } catch { /* ignore */ }
+}
+
+export function speak(text, { force = false } = {}) {
+  if ((!force && !store.pref('voiceReplies', true)) || !text) return;
+  try { speechSynthesis?.cancel(); } catch { /* ignore */ }
+  if (W.cloudVoice()) W.speakCloud(text).catch(() => speakDevice(text));
+  else speakDevice(text);
+}
+
+export function stopSpeaking() {
+  W.stopSpeaking();
+  try { speechSynthesis?.cancel(); } catch { /* ignore */ }
 }
 
 // Money for the ear: "₹1,200" → "1,200 rupees"
@@ -66,16 +115,36 @@ function listSay(items, max = 5) {
 // ---- Listening -------------------------------------------------------------------------------
 let active = null;
 
+// Throw away whatever is being heard.
 export function stopListening() {
   try { active?.abort(); } catch { /* ignore */ }
   active = null;
 }
 
+// Stop listening but keep (and act on) what was said so far.
+export function finishListening() {
+  try { active?.stop(); } catch { /* ignore */ }
+}
+
+// Names Whisper should spell right: your habits, task headings and a few command words.
+function vocabulary() {
+  const names = [...M.habits().map((x) => x.name), ...M.taskHeadings().map((x) => x.name), ...V.vices().map((x) => x.name)];
+  return `Daybook voice commands. Add task, remind me to, spent 250 on lunch, schedule, note, I meditated. ${names.join(', ')}.`;
+}
+
 // Start recognition. Calls onInterim(text) while speaking, then onFinal(text) or onError(msg).
-export function listen({ onInterim, onFinal, onError, onEnd } = {}) {
-  if (!SR) { onError?.('unsupported'); return null; }
+// onStatus(msg) reports Whisper's “Listening…” / “Transcribing…” (it has no interim text).
+// Errors: 'unsupported', 'not-allowed' (mic blocked — see micHelp()), or a message to show.
+export function listen({ onInterim, onFinal, onError, onEnd, onStatus } = {}) {
   stopListening();
-  try { speechSynthesis?.cancel(); } catch { /* ignore */ }
+  stopSpeaking();
+  if (W.listeningOn()) {
+    const handle = W.record({ onFinal, onError, onStatus, hint: vocabulary(), lang: lang(),
+      onEnd: () => { if (active === handle) active = null; onEnd?.(); } });
+    active = handle;
+    return handle;
+  }
+  if (!SR) { onError?.('unsupported'); return null; }
   const rec = new SR();
   rec.lang = lang();
   rec.interimResults = true;
@@ -96,8 +165,8 @@ export function listen({ onInterim, onFinal, onError, onEnd } = {}) {
   rec.onerror = (e) => {
     done = true;
     const msg = {
-      'not-allowed': 'Microphone access is blocked. Allow it for this site in your browser settings.',
-      'service-not-allowed': 'unsupported',
+      'not-allowed': 'not-allowed',
+      'service-not-allowed': isApple() ? 'not-allowed' : 'unsupported',
       'no-speech': 'I didn’t hear anything. Tap the mic and try again.',
       'audio-capture': 'No microphone found.',
       network: 'Speech recognition needs an internet connection.',
@@ -119,19 +188,61 @@ export function listen({ onInterim, onFinal, onError, onEnd } = {}) {
   return rec;
 }
 
+// ---- Microphone help ------------------------------------------------------------------------------
+function isApple() {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// Where to switch the microphone back on, for the browser this is running in.
+export function micHelp() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const standalone = typeof window !== 'undefined' && (window.navigator.standalone || window.matchMedia?.('(display-mode: standalone)').matches);
+  if (isApple()) {
+    const device = /iPhone|iPod/.test(ua) ? 'iPhone' : 'iPad';
+    const browser = /CriOS/.test(ua) ? 'Chrome' : /FxiOS/.test(ua) ? 'Firefox' : /EdgiOS/.test(ua) ? 'Edge' : 'Safari';
+    const steps = browser === 'Safari'
+      ? [standalone
+        ? 'Open the Settings app → Apps → Safari (just “Safari” on older iPadOS) → Microphone, and choose Ask or Allow.'
+        : 'In Safari, tap the page-settings button at the left of the address bar (“aA” or ☰) → Website Settings → Microphone → Allow.',
+      standalone ? 'Then close this app completely (swipe it away) and reopen it.' : 'Or: Settings app → Apps → Safari (just “Safari” on older iPadOS) → Microphone → Allow. Then reload this page.']
+      : [`Open the Settings app → Apps → ${browser} → turn on Microphone.`, `Then reload this page in ${browser}.`];
+    if (!W.listeningOn()) steps.push(`The built-in recognizer on ${device} also needs Dictation: Settings → General → Keyboard → Enable Dictation (and, if you use Screen Time, Content & Privacy Restrictions → Allowed Apps → Siri & Dictation).`);
+    if (standalone && !W.listeningOn()) steps.push('Still blocked? The home-screen app often can’t use the built-in recognizer. Turn on Whisper in Settings → Voice assistant — it uses the normal mic prompt and works here.');
+    return { title: `Microphone is blocked on this ${device}`, steps };
+  }
+  if (/Firefox/.test(ua)) return { title: 'Microphone is blocked', steps: ['Click the mic / lock icon at the left of the address bar and clear the “Blocked” microphone permission.', 'Reload the page.'] };
+  return { title: 'Microphone is blocked', steps: ['Click the lock (or tune) icon at the left of the address bar → Site settings → Microphone → Allow.', 'Reload the page.'] };
+}
+
+// Ask for the mic directly: on a site set to “Ask” this brings the permission prompt back.
+export async function requestMic() {
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach((t) => t.stop());
+    return true;
+  } catch { return false; }
+}
+
 // Mic button that dictates into a text field (appends text).
 export function dictateButton(field, { onDone } = {}) {
   const btn = h('button', { type: 'button', class: 'icon-btn mic-btn', 'aria-label': 'Dictate', 'data-tip': 'Dictate' }, icon('mic', 20));
   btn.addEventListener('click', () => {
-    if (btn.classList.contains('listening')) { stopListening(); return; }
-    if (!SR) { field.focus(); toast('Use the 🎤 key on your keyboard to dictate here.'); return; }
+    if (btn.classList.contains('listening')) { finishListening(); return; }
+    if (!supported()) { field.focus(); toast('Use the 🎤 key on your keyboard to dictate here.'); return; }
     const before = field.value;
     const sep = before && !/\s$/.test(before) ? (field.tagName === 'TEXTAREA' ? '\n' : ' ') : '';
     btn.classList.add('listening');
     listen({
       onInterim: (t) => { field.value = before + sep + t; },
       onFinal: (t) => { field.value = before + sep + t; field.dispatchEvent(new Event('input', { bubbles: true })); onDone?.(); },
-      onError: (m) => { field.value = before; if (m && m !== 'unsupported') toast(m); else if (m) toast('Use the 🎤 key on your keyboard to dictate here.'); },
+      onError: (m) => {
+        field.value = before;
+        if (m === 'not-allowed') toast(`${micHelp().title}. Open the voice panel (V) for how to fix it.`);
+        else if (m && m !== 'unsupported') toast(m);
+        else if (m) toast('Use the 🎤 key on your keyboard to dictate here.');
+      },
       onEnd: () => btn.classList.remove('listening'),
     });
   });
@@ -152,18 +263,16 @@ export function execute(text) {
 
     case 'todo': {
       if (!it.title) return { say: 'What should I add?', title: 'What should I add?' };
-      const r = M.addTodo(it.title, it.date);
-      const when = it.date === t ? 'today' : D.fmtDate(it.date).toLowerCase();
-      return { say: `Added “${r.title}” to your to-dos for ${when}.`, title: `To-do: ${r.title}`, sub: D.fmtDate(it.date), undo: () => store.remove('todos', r.id), col: 'todos', rec: r };
+      const one = [{ title: it.title, date: it.date }];
+      return addTodos(it.items || one, it.items ? one : it.alt, t);
     }
 
     case 'task': {
       if (!it.title) return { say: 'What’s the task?', title: 'What’s the task?' };
       let heading = null;
       if (it.heading) heading = bestMatch(it.heading, M.taskHeadings(), (g) => g.name, 0.5) || M.addHeading(tidy(it.heading));
-      const r = M.addTask({ title: it.title, date: it.due, priority: it.priority, tag: it.tag, heading: heading?.id });
-      const bits = [heading ? `under ${heading.name}` : '', it.due ? `due ${D.fmtDate(it.due)}` : '', it.priority === 3 ? 'high priority' : ''].filter(Boolean).join(', ');
-      return { say: `Added task “${r.title}”${bits ? `, ${bits}` : ''}.`, title: `Task: ${r.title}`, sub: bits, undo: () => store.remove('tasks', r.id), col: 'tasks', rec: r };
+      const one = [{ title: it.title, due: it.due, priority: it.priority, tag: it.tag }];
+      return addTasks(it.items || one, it.items ? one : it.alt, heading);
     }
 
     case 'event': {
@@ -321,6 +430,37 @@ export function execute(text) {
   }
 }
 
+// "Keep as one" / "Split into 3": undo what was just added and add the other reading instead.
+function withAlt(res, other, redo) {
+  if (!other) return res;
+  res.alt = { label: other.length > 1 ? `Split into ${other.length}` : 'Keep as one', run: () => { res.undo(); return redo(); } };
+  return res;
+}
+
+function addTodos(items, other, t) {
+  const recs = items.map((x) => M.addTodo(x.title, x.date));
+  const dates = [...new Set(recs.map((r) => r.date))];
+  const when = dates.length > 1 ? '' : dates[0] === t ? 'today' : D.fmtDate(dates[0]).toLowerCase();
+  const res = recs.length === 1
+    ? { say: `Added “${recs[0].title}” to your to-dos for ${when}.`, title: `To-do: ${recs[0].title}`, sub: D.fmtDate(recs[0].date), col: 'todos', rec: recs[0] }
+    : { say: `Added ${recs.length} to-dos${when ? ` for ${when}` : ''}: ${listSay(recs.map((r) => r.title), 6)}.`, title: `${recs.length} to-dos added`,
+      sub: dates.map((d) => D.fmtDate(d)).join(' · '), lines: recs.map((r) => `☐ ${r.title}`) };
+  res.undo = () => recs.forEach((r) => store.remove('todos', r.id));
+  return withAlt(res, other, () => addTodos(other, items, t));
+}
+
+function addTasks(items, other, heading) {
+  const recs = items.map((x) => M.addTask({ title: x.title, date: x.due, priority: x.priority, tag: x.tag, heading: heading?.id }));
+  const due = [...new Set(recs.map((r) => r.due).filter(Boolean))];
+  const bits = [heading ? `under ${heading.name}` : '', due.length === 1 ? `due ${D.fmtDate(due[0])}` : '', recs.every((r) => r.priority === 3) ? 'high priority' : ''].filter(Boolean).join(', ');
+  const res = recs.length === 1
+    ? { say: `Added task “${recs[0].title}”${bits ? `, ${bits}` : ''}.`, title: `Task: ${recs[0].title}`, sub: bits, col: 'tasks', rec: recs[0] }
+    : { say: `Added ${recs.length} tasks: ${listSay(recs.map((r) => r.title), 6)}${bits ? `, ${bits}` : ''}.`, title: `${recs.length} tasks added`, sub: bits,
+      lines: recs.map((r) => `◻︎ ${r.title}${r.due && due.length > 1 ? ` · ${D.fmtDate(r.due)}` : ''}`) };
+  res.undo = () => recs.forEach((r) => store.remove('tasks', r.id));
+  return withAlt(res, other, () => addTasks(other, items, heading));
+}
+
 function answer(q, t) {
   if (q.what === 'agenda' || q.what === 'brief') {
     const d = q.date || t;
@@ -458,6 +598,7 @@ export function openVoice({ autoStart = true, go } = {}) {
   };
 
   const run = (text) => {
+    W.unlockAudio();
     if (listening) { stopListening(); setListening(false); }
     transcript.textContent = `“${text}”`;
     examples.style.display = 'none';
@@ -474,6 +615,9 @@ export function openVoice({ autoStart = true, go } = {}) {
     if (res.undo) {
       actions.push(h('button', { class: 'btn ghost sm', onclick: () => { res.undo(); result.replaceChildren(h('p', { class: 'muted' }, 'Undone.')); speak('Undone.'); } }, 'Undo'));
     }
+    if (res.alt) {
+      actions.push(h('button', { class: 'btn ghost sm', onclick: () => { W.unlockAudio(); const next = res.alt.run(); showResult(next); speak(next.say); } }, res.alt.label));
+    }
     if (res.news) actions.push(h('button', { class: 'btn ghost sm', onclick: () => { closeSheet(); go?.('news'); } }, 'Open News'));
     actions.push(h('button', { class: 'btn primary sm', onclick: start }, icon('mic', 16), 'Again'));
     result.replaceChildren(
@@ -484,10 +628,22 @@ export function openVoice({ autoStart = true, go } = {}) {
         h('div', { class: 'btn-row' }, actions)));
   };
 
+  const blocked = () => {
+    const help = micHelp();
+    status.textContent = '';
+    result.replaceChildren(h('div', { class: 'voice-card voice-help' },
+      h('p', { class: 'voice-title' }, `🎙️ ${help.title}`),
+      h('ol', { class: 'small steps' }, help.steps.map((x) => h('li', null, x))),
+      h('div', { class: 'btn-row' },
+        h('button', { class: 'btn primary sm', onclick: async () => { if (await requestMic()) start(); else status.textContent = 'Still blocked — follow the steps above, then try again.'; } }, icon('mic', 16), 'Try again'),
+        h('a', { class: 'btn ghost sm', href: '#/settings', onclick: () => closeSheet() }, 'Voice settings'))));
+  };
+
   const start = () => {
-    if (listening) { stopListening(); return; }
+    W.unlockAudio();
+    if (listening) { finishListening(); return; }
     result.replaceChildren();
-    if (!SR) {
+    if (!supported()) {
       status.textContent = 'Voice input isn’t available in this browser. Type below, or tap the 🎤 on your keyboard to dictate.';
       typed.focus();
       return;
@@ -495,11 +651,13 @@ export function openVoice({ autoStart = true, go } = {}) {
     setListening(true);
     listen({
       onInterim: (tx) => { transcript.textContent = tx; },
+      onStatus: (m) => { status.textContent = m; if (m !== 'Listening…') mic.classList.remove('on'); },
       onFinal: (tx) => { setListening(false); run(tx); },
       onError: (m) => {
         setListening(false);
-        status.textContent = m === 'unsupported'
-          ? 'Voice input isn’t available here (on iPad/iPhone try it in Safari). You can type below or use the keyboard’s 🎤.'
+        if (m === 'not-allowed') blocked();
+        else status.textContent = m === 'unsupported'
+          ? 'Voice input isn’t available here. Turn on Whisper in Settings → Voice assistant, type below, or use the keyboard’s 🎤.'
           : m;
       },
       onEnd: () => { if (listening) setListening(false); },
@@ -515,8 +673,8 @@ export function openVoice({ autoStart = true, go } = {}) {
   panel.classList.add('voice-sheet');
   const obs = new MutationObserver(() => { if (!document.body.contains(panel)) { stopListening(); obs.disconnect(); } });
   obs.observe(document.body, { childList: true });
-  if (autoStart && SR) start();
-  else if (!SR) status.textContent = 'Type a command below, or tap the 🎤 on your keyboard to dictate.';
+  if (autoStart && supported()) start();
+  else if (!supported()) status.textContent = 'Type a command below, or tap the 🎤 on your keyboard to dictate.';
 }
 
 export function isOpen() {

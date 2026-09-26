@@ -7,6 +7,7 @@ import { h, icon, section, field, segmented, toast } from '../ui.js';
 import { applyTheme } from '../theme.js';
 import { ROUTE_META, SIDEBAR, DEFAULT_TABS, bottomTabs } from '../routes.js';
 import * as voice from '../voice.js';
+import * as W from '../whisper.js';
 import * as install from '../install.js';
 
 const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync';
@@ -14,7 +15,7 @@ const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&descriptio
 export function render(ctx) {
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'Settings')),
-    syncCard(ctx), voiceCard(), gameCard(), navCard(), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
+    syncCard(ctx), voiceCard(ctx), gameCard(), navCard(), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
 }
 
 function syncCard(ctx) {
@@ -51,18 +52,51 @@ function syncCard(ctx) {
 const LANGS = [['en-IN', 'English (India)'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-AU', 'English (Australia)'],
   ['hi-IN', 'Hindi (commands still need English words)']];
 
-function voiceCard() {
+function voiceCard(ctx) {
   const cur = voice.lang();
   const opts = LANGS.some(([k]) => k === cur) ? LANGS : [[cur, cur], ...LANGS];
   const lang = h('select', null, opts.map(([k, l]) => h('option', { value: k, selected: k === cur }, l)));
-  lang.addEventListener('change', () => store.setPref('voiceLang', lang.value));
-  return section('Voice assistant', h('span', { class: ['badge', voice.supported() ? 'good' : ''] }, voice.supported() ? 'Available' : 'Type or dictate'),
-    h('p', { class: 'small' }, 'Tap the mic button (or press V) and speak. Examples: “remind me to call the bank tomorrow”, “spent 250 on lunch”, “schedule dentist Friday at 3 pm”, “I meditated”, “start push workout”, “set a goal to read 24 books this year”, “note: gate code 4512”, “what’s on tomorrow?”, “how much did I spend this month?”, “brief me”.'),
-    voice.supported() ? null : h('p', { class: 'small muted' }, 'This browser has no built-in speech recognition. The voice panel still works: type a command, or tap the 🎤 on your keyboard to dictate it.'),
+  lang.addEventListener('change', () => { store.setPref('voiceLang', lang.value); fillVoices(); });
+  const cfg = W.cfg();
+  const whisper = cfg.engine === 'whisper';
+  const prov = W.PROVIDERS[cfg.provider] ? cfg.provider : 'groq';
+
+  // Reply voice: the device's voices (most natural first) plus OpenAI's, when there's a key.
+  const reply = h('select');
+  const fillVoices = () => {
+    const now = W.cfg().reply || '';
+    const dev = voice.voices();
+    const cloud = cfg.key && W.PROVIDERS[prov].tts ? W.CLOUD_VOICES : [];
+    reply.replaceChildren(
+      h('option', { value: '' }, dev.length ? `Automatic — ${dev[0].name}` : 'Automatic'),
+      cloud.length ? h('optgroup', { label: 'OpenAI (natural, uses your key)' }, cloud.map((v) => h('option', { value: `cloud:${v}`, selected: now === `cloud:${v}` }, v.charAt(0).toUpperCase() + v.slice(1)))) : null,
+      dev.length ? h('optgroup', { label: 'This device' }, dev.map((v) => h('option', { value: `device:${v.name}`, selected: now === `device:${v.name}` }, `${v.name} (${v.lang})`))) : null);
+  };
+  fillVoices();
+  voice.onVoices(fillVoices);
+  reply.addEventListener('change', () => { W.setCfg({ reply: reply.value }); voice.speak('Hi! This is how I’ll sound.', { force: true }); });
+
+  const key = h('input', { type: 'password', placeholder: prov === 'groq' ? 'gsk_…' : 'sk-…', autocomplete: 'off', spellcheck: 'false', value: cfg.key || '' });
+  const whisperBox = whisper ? h('div', { class: 'form' },
+    h('p', { class: 'small muted' }, 'Records what you say and has Whisper transcribe it: much better with accents, names and long lists, and it works in the iPad/iPhone home-screen app. The clip goes to the provider below; your key stays on this device only (it isn’t synced).'),
+    field('Provider', segmented([['groq', 'Groq — free'], ['openai', 'OpenAI']], prov, (v) => { W.setCfg({ provider: v }); ctx.rerender(); }, { small: true })),
+    field('API key', key, h('a', { href: W.PROVIDERS[prov].keyUrl, target: '_blank', rel: 'noopener' }, prov === 'groq' ? 'Get a free Groq key (no card needed)' : 'Get an OpenAI key')),
+    h('button', { class: 'btn primary', onclick: () => { W.setCfg({ key: key.value.trim() }); toast(key.value.trim() ? 'Key saved on this device' : 'Key removed'); ctx.rerender(); } }, 'Save key'),
+    cfg.key && !W.canRecord() ? h('p', { class: 'small error' }, 'This browser can’t record audio, so the built-in recognizer is used instead.') : null) : null;
+
+  const apple = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return section('Voice assistant', h('span', { class: ['badge', voice.supported() ? 'good' : ''] }, voice.supported() ? (W.listeningOn() ? 'Whisper' : 'Available') : 'Type or dictate'),
+    h('p', { class: 'small' }, 'Tap the mic button (or press V) and speak. Examples: “remind me to call the bank tomorrow”, “add task write the report and email John” (adds two), “spent 250 on lunch”, “schedule dentist Friday at 3 pm”, “I meditated”, “start push workout”, “set a goal to read 24 books this year”, “note: gate code 4512”, “what’s on tomorrow?”, “how much did I spend this month?”, “brief me”.'),
+    voice.supported() ? null : h('p', { class: 'small muted' }, 'This browser has no built-in speech recognition. Turn on Whisper below, or type a command in the voice panel / tap the 🎤 on your keyboard to dictate it.'),
     h('div', { class: 'form' },
       field('Recognition language / accent', lang),
+      field('Listening', segmented([['browser', 'Built-in (free)'], ['whisper', 'Whisper (more accurate)']], whisper ? 'whisper' : 'browser', (v) => { W.setCfg({ engine: v }); ctx.rerender(); }, { small: true })),
+      whisperBox,
       field('Speak replies out loud', segmented([[true, 'On'], [false, 'Off']], store.pref('voiceReplies', true), (v) => store.setPref('voiceReplies', v))),
-      h('button', { class: 'btn ghost', onclick: () => voice.speak('Hi! Voice replies are working.') }, 'Test voice')));
+      field('Reply voice', reply, apple
+        ? 'Sounds robotic? Download a better voice: Settings app → Accessibility → Spoken Content (or Read & Speak) → Voices → English → pick one marked Enhanced or Premium (e.g. Ava, Zoe or Evan), then choose it here.'
+        : 'Voices named Natural, Neural, Online or Google sound the most human. Edge has the best free ones.'),
+      h('button', { class: 'btn ghost', onclick: () => voice.speak('Hi! Voice replies are working.', { force: true }) }, 'Test voice')));
 }
 
 function gameCard() {
