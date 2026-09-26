@@ -99,13 +99,13 @@ test('vault helpers', () => {
 
 test('Daybook export to raw/daybook', () => {
   const out = daybookMarkdown({
-    learnings: [{ text: 'Sleep consolidates memory', type: 'fact', topics: ['sleep science'], source: 'Why We Sleep', details: 'REM + deep sleep', createdAt: Date.UTC(2026, 8, 20) }],
+    learnings: [{ text: 'Sleep consolidates memory', type: 'fact', topics: ['sleep science'], source: 'Why We Sleep', details: 'REM + deep sleep', createdAt: new Date(2026, 8, 20, 12).getTime() }],
     reading: [{ title: 'Deep Work', author: 'Cal Newport', status: 'done', finishedAt: '2026-09-01', rating: 4 }, { title: 'SICP', status: 'reading', progress: 30 }],
     watch: [], goals: [{ id: 'g1', title: 'Read 24 books', horizon: 'year', period: '2026', mode: 'number', current: 7, target: 24, unit: 'books' }],
     notes: [{ text: 'Idea\nlink [[LLM wiki]]', updatedAt: 1 }],
   }, '2026-09-26');
   assert.deepEqual(Object.keys(out).sort(), ['raw/daybook/goals.md', 'raw/daybook/learnings.md', 'raw/daybook/notes.md', 'raw/daybook/reading.md', 'raw/daybook/watch.md']);
-  assert.match(out['raw/daybook/learnings.md'], /\*\*Sleep consolidates memory\*\*\n {2}fact · 2026-09-2\d · #sleep-science · source: Why We Sleep\n {2}REM \+ deep sleep/);
+  assert.match(out['raw/daybook/learnings.md'], /\*\*Sleep consolidates memory\*\*\n {2}fact · 2026-09-20 · #sleep-science · source: Why We Sleep\n {2}REM \+ deep sleep/);
   assert.match(out['raw/daybook/reading.md'], /## Reading now\n\n- \*\*SICP\*\* · 30%[\s\S]*## Finished\n\n- \*\*Deep Work\*\* by Cal Newport · finished 2026-09-01 · ★★★★/);
   assert.match(out['raw/daybook/goals.md'], /## Yearly\n\n- \*\*Read 24 books\*\* \(2026\) · active · 7\/24 books/);
   assert.match(out['raw/daybook/notes.md'], /## Idea\n\nlink \[\[LLM wiki\]\]/);
