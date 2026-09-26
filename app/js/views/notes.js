@@ -6,14 +6,67 @@ import { shareButton } from '../share.js';
 import * as D from '../dates.js';
 import { h, icon, sheet, closeSheet, empty, toast, removeWithUndo } from '../ui.js';
 import { dictateButton } from '../voice.js';
+import { noteTitle } from '../graph.js';
+import * as vault from '../vault.js';
 
 let query = '';
 
 const CHECK_RE = /^(\s*(?:[-*]\s*)?)\[( |x|X)\]\s?(.*)$/;
 
 export function titleOf(n) {
-  const first = (n.text || '').split('\n').find((l) => l.trim()) || 'Untitled';
-  return first.replace(CHECK_RE, '$3').trim().slice(0, 90);
+  return noteTitle(n.text || '');
+}
+
+// "see [[Deep work|this]]" → text with tappable links that open the page on the knowledge map.
+function linkify(text) {
+  const out = [];
+  let last = 0;
+  for (const m of String(text).matchAll(/\[\[([^\[\]\n]+?)\]\]/g)) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const [target, ...alias] = m[1].split('|');
+    out.push(h('a', { class: 'wikilink', href: `#/brain?n=${encodeURIComponent(target.split('#')[0].trim())}`, onclick: (e) => e.stopPropagation() }, alias.length ? alias.join('|') : target));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+// Titles a [[link]] can point to: vault pages, notes, books, shows and goals.
+function linkTitles() {
+  const titles = new Set(vault.all().filter((f) => !f.path.startsWith('raw/')).map((f) => f.path.split('/').pop().replace(/\.md$/i, '')));
+  for (const n of store.all('notes')) titles.add(titleOf(n));
+  for (const col of ['reading', 'watch', 'goals']) for (const r of store.all(col)) if (r.title) titles.add(r.title);
+  return [...titles];
+}
+
+// Typing "[[" in a textarea suggests pages to link to.
+export function linkSuggest(ta) {
+  const box = h('div', { class: 'link-suggest', role: 'listbox' });
+  box.hidden = true;
+  const update = () => {
+    const before = ta.value.slice(0, ta.selectionStart);
+    const m = before.match(/\[\[([^\[\]\n|]*)$/);
+    if (!m) { box.hidden = true; return; }
+    const q = m[1].toLowerCase();
+    const hits = linkTitles().filter((t) => t.toLowerCase().includes(q))
+      .sort((a, b) => a.toLowerCase().indexOf(q) - b.toLowerCase().indexOf(q) || a.length - b.length).slice(0, 6);
+    if (m[1].trim() && !hits.some((t) => t.toLowerCase() === q)) hits.push(m[1].trim());
+    box.replaceChildren(...hits.map((t) => h('button', { type: 'button', role: 'option', onmousedown: (e) => e.preventDefault(), onclick: () => {
+      const start = before.length - m[1].length;
+      const after = ta.value.slice(ta.selectionStart).replace(/^[^\[\]\n]*\]\]/, '');
+      ta.value = `${ta.value.slice(0, start)}${t}]]${after}`;
+      const caret = start + t.length + 2;
+      ta.setSelectionRange(caret, caret);
+      ta.focus();
+      box.hidden = true;
+      ta.dispatchEvent(new Event('input'));
+    } }, t)));
+    box.hidden = !hits.length;
+  };
+  ta.addEventListener('input', update);
+  ta.addEventListener('keyup', (e) => { if (e.key.startsWith('Arrow')) update(); });
+  ta.addEventListener('blur', () => setTimeout(() => { box.hidden = true; }, 150));
+  return box;
 }
 
 function bodyOf(n) {
@@ -47,7 +100,7 @@ export function render(ctx) {
     h('header', { class: 'page-head' }, h('h1', null, 'Notes'),
       h('span', { class: 'muted small' }, `${store.all('notes').length} notes`)),
     h('section', { class: 'card' },
-      compose,
+      h('div', { class: 'link-wrap' }, compose, linkSuggest(compose)),
       h('div', { class: 'compose-actions' },
         dictateButton(compose),
         h('span', { class: 'muted small hide-sm' }, '⌘/Ctrl + Enter to save'),
@@ -70,10 +123,10 @@ function noteCard(n) {
       }, icon('pin', 17))),
     body ? h('div', { class: 'note-body' }, lines.map((l, i) => {
       const m = l.match(CHECK_RE);
-      if (!m) return h('p', null, l || ' ');
+      if (!m) return h('p', null, l ? linkify(l) : ' ');
       const checked = m[2].toLowerCase() === 'x';
       return h('label', { class: ['note-check', checked && 'done'], onclick: (e) => e.stopPropagation() },
-        h('input', { type: 'checkbox', checked, onchange: () => toggleLine(n, i, !checked) }), h('span', null, m[3]));
+        h('input', { type: 'checkbox', checked, onchange: () => toggleLine(n, i, !checked) }), h('span', null, linkify(m[3])));
     })) : null,
     h('p', { class: 'note-date' }, D.fmtDate(D.toStr(new Date(n.updatedAt)))));
 }
@@ -92,7 +145,7 @@ function toggleLine(n, bodyIndex, on) {
 export function editNote(n = null) {
   let rec = n;
   let gone = false;
-  const ta = h('textarea', { class: 'note-editor', rows: 14, placeholder: 'Start typing…', autofocus: true }, n ? n.text : '');
+  const ta = h('textarea', { class: 'note-editor', rows: 14, placeholder: 'Start typing… type [[ to link another page', autofocus: true }, n ? n.text : '');
   let timer = null;
   const persist = () => {
     const text = ta.value;
@@ -107,9 +160,10 @@ export function editNote(n = null) {
     h('button', { class: 'btn ghost', onclick: () => { clearTimeout(timer); persist(); if (rec) { store.put('notes', { ...rec, pinned: !rec.pinned }); } closeSheet(); } }, icon('pin', 18), n?.pinned ? 'Unpin' : 'Pin'),
     h('button', { class: 'btn primary', onclick: done }, 'Done'),
   ];
+  if (n) actions.unshift(h('button', { class: 'btn ghost', onclick: () => { clearTimeout(timer); persist(); closeSheet(); location.hash = `#/brain?n=${encodeURIComponent(titleOf({ text: ta.value }))}`; } }, icon('graph', 18), 'Map'));
   if (n) actions.unshift(shareButton(() => { const cur = { text: ta.value }; return { type: 'note', title: titleOf(cur), body: bodyOf(cur) }; }));
   if (n) actions.unshift(h('button', { class: 'btn danger ghost', onclick: () => { clearTimeout(timer); gone = true; closeSheet(); removeWithUndo('notes', n.id, 'Note deleted'); } }, icon('trash', 18), 'Delete'));
-  const panel = sheet(n ? 'Note' : 'New note', ta, { actions });
+  const panel = sheet(n ? 'Note' : 'New note', h('div', { class: 'link-wrap' }, ta, linkSuggest(ta)), { actions });
   // Save whatever was typed if the sheet is dismissed another way.
   const obs = new MutationObserver(() => {
     if (!document.body.contains(panel)) { clearTimeout(timer); persist(); obs.disconnect(); }

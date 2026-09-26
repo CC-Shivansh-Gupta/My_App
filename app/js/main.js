@@ -15,6 +15,7 @@ import * as expenses from './views/expenses.js';
 import * as news from './views/news.js';
 import * as settings from './views/settings.js';
 import * as notes from './views/notes.js';
+import * as brain from './views/brain.js';
 import * as gym from './views/gym.js';
 import * as goals from './views/goals.js';
 import * as learn from './views/learnings.js';
@@ -31,7 +32,7 @@ import { ROUTE_META, SIDEBAR, bottomTabs } from './routes.js';
 
 const VIEWS = {
   today: [today, 'todo'], calendar: [calendar, 'event'], tasks: [tasks, 'task'], habits: [habits, 'todo'],
-  goals: [goals, 'goal'], gym: [gym, 'todo'], money: [expenses, 'expense'], notes: [notes, 'note'],
+  goals: [goals, 'goal'], gym: [gym, 'todo'], money: [expenses, 'expense'], notes: [notes, 'note'], brain: [brain, 'note'],
   reading: [reading, 'reading'], news: [news, 'reading'], settings: [settings, 'todo'],
   friends: [friends, 'todo'], learn: [learn, 'learning'], watch: [watch, 'watch'], routine: [routine, 'track'], screen: [screen, 'todo'], stats: [stats, 'todo'],
   more: [{ render: settings.renderMore }, 'todo'],
@@ -207,7 +208,7 @@ function boot() {
     if (isSheetOpen()) return;
     if (e.key === 'n' || e.key === 'N' || e.key === '+') { e.preventDefault(); quickAdd({ kind: ROUTES[current].add }); return; }
     if (e.key === 'v' || e.key === 'V') { e.preventDefault(); openVoice(); return; }
-    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats', f: 'friends' }[e.key];
+    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', i: 'brain', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats', f: 'friends' }[e.key];
     if (jump && !isSheetOpen()) location.hash = `#/${jump}`;
   });
 
