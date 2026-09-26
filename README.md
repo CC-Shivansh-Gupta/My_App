@@ -66,12 +66,12 @@ The vault is a separate private repo (`second-brain`) of plain Markdown that Obs
 ## Agent setup (one-time, free)
 
 The agent's code is in [`agent/`](agent) and [`app/js/agent.js`](app/js/agent.js). It **runs from the private `second-brain` repo** (`.github/workflows/daybook-agent.yml`), so its Actions logs are private too. It only ever prints counts.
-1. Merge this repo's agent code to `main`. The workflow checks out `main`, or the branch set in the `DAYBOOK_AGENT_REF` repository variable.
+1. The workflow runs the agent code from this repo's default branch (the one Pages deploys from), or from the branch, tag or commit set in second-brain's `DAYBOOK_AGENT_REF` repository variable.
 2. In **second-brain → Settings → Secrets and variables → Actions**, add a secret `DAYBOOK_GIST_TOKEN` with the same `gist`-scope token that sync uses. Optionally, add a variable `DAYBOOK_TZ` (default `Asia/Kolkata`).
 3. In second-brain's **Actions** tab, open **Daybook agent** and press **Run workflow** once. On the first run it creates its push keys and keeps them in the sync gist, in a separate `daybook-agent.json` file that the app ignores.
 4. In the app, go to **Agent → Turn on for this device** on each device. On iPhone or iPad, open Daybook from its Home Screen icon first (iOS 16.4+).
 
-It runs daily at about 07:00 (01:23 UTC; GitHub often starts scheduled runs a few minutes late). Anyone who can push to this repo's `main` could change code that runs with the gist token. Today that is only me. To lock it down, set `DAYBOOK_AGENT_REF` to a commit SHA. GitHub pauses scheduled workflows in a repo after 60 days without commits, so if the brief stops arriving, check second-brain's Actions tab.
+It runs daily at about 07:00 (01:23 UTC; GitHub often starts scheduled runs a few minutes late). Anyone who can push to this repo's default branch could change code that runs with the gist token. Today that is only me. To lock it down, set `DAYBOOK_AGENT_REF` to a commit SHA. GitHub pauses scheduled workflows in a repo after 60 days without commits, so if the brief stops arriving, check second-brain's Actions tab.
 
 ## Friends setup (one-time, free)
 
