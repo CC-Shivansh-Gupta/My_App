@@ -23,6 +23,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 - **Notes**: quick notes with search and pinning. Lines like `[ ] milk` become tickable checklists, and I can dictate a note by voice.
 - **Knowledge map**: an Obsidian-style graph of my second brain. It shows my Obsidian vault, read from its private GitHub repo, together with Daybook's notes, learnings, books, shows and goals. Tap a dot to read the page with its links and backlinks, open it in Obsidian, or **Copy for AI** (the page plus its neighbours, ready to paste into any chatbot). **Send to inbox** drops a thought into the vault's `raw/inbox/`, and **Copy Daybook to vault** writes my learnings, reading, goals and notes to `raw/daybook/` so assistants can ingest them. In notes, `[[Page name]]` makes a link (typing `[[` suggests pages) and tapping it opens the map. Without a vault, the map still shows Daybook's own items.
 - **Voice assistant**: tap the mic (or press V) and speak. It understands things like "remind me to call the bank tomorrow", "spent 250 on lunch", "schedule dentist Friday at 3 pm", "I meditated", "start push workout", "log my weight 72.5", "set a goal to read 24 books this year", "add task book flights under trip heading", "note: gate code 4512", "what's on tomorrow?", "how much did I spend this month?" and "brief me". It answers out loud. Commands are understood on the device (`app/js/intents.js`), so there's no paid AI service. If a browser has no speech recognition, you can type a command or use the keyboard's 🎤.
+- **Agent**: a scheduled job that runs every morning in my private second-brain repo, for free. It reads my synced data and writes a **morning brief** (today's events, to-dos, overdue tasks, streaks at risk, budget pace, goals running out of time). It also sends a push notification with counts only, so no titles show on the lock screen. Its **suggestions** (plan an overdue task, move old to-dos to today, add a to-do for a goal) wait in an inbox until I approve or dismiss them. For each kind of suggestion I can switch from "Ask me first" to "Just do it" once it has earned that. Every run and decision is logged on the Agent page. It uses plain rules, no AI service.
 - **News**: papers, job posts and articles pulled every 3 hours from the feeds in [`news/sources.json`](news/sources.json) and ranked by my interest keywords. One tap saves an item to the reading list.
 
 ### Adding things with minimal effort
@@ -33,7 +34,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
   - `Deep Work by Cal Newport`
 - Each section also has an inline box: type and press Enter.
 - Deleting shows an **Undo** toast instead of an "are you sure?" dialog.
-- Keyboard shortcuts on a laptop: `N` add, `V` voice, `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `U` Routine, `M` Money, `O` Notes, `I` Knowledge map, `L` Learnings, `R` Reading, `B` Watch list, `W` News, `S` Stats, `F` Friends.
+- Keyboard shortcuts on a laptop: `N` add, `V` voice, `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `U` Routine, `M` Money, `O` Notes, `I` Knowledge map, `L` Learnings, `R` Reading, `B` Watch list, `W` News, `S` Stats, `F` Friends, `A` Agent.
 - On a phone you choose which five sections sit in the bottom bar (Settings → Bottom bar). The rest are under More.
 
 ## How it runs everywhere for free
@@ -43,6 +44,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 | App | A Progressive Web App (plain HTML/CSS/JS, no build step), installable on iPad, Android and laptop, and works offline | free |
 | Hosting | GitHub Pages | free for public repos |
 | Sync between devices | Each device merges its data with a **secret GitHub Gist** on my account (newest edit per item wins) | free |
+| Morning agent | A scheduled GitHub Action in the private `second-brain` repo reads and writes the same secret gist, and sends Web Push notifications itself, so no server is needed | free (about 30 of the 2,000 free private-repo minutes a month) |
 | News polling | A scheduled GitHub Action fetches the feeds every 3 hours and publishes `data/news.json` with the site | free for public repos |
 
 My data never goes into this repo. It stays in each device's storage and in my secret gist, so the repo can stay public.
@@ -60,6 +62,16 @@ My data never goes into this repo. It stays in each device's storage and in my s
 ## Second brain setup (one-time, free)
 
 The vault is a separate private repo (`second-brain`) of plain Markdown that Obsidian syncs to every device with the free **FIT** plugin, and that Claude, ChatGPT/Codex, Gemini/Jules and Copilot can read. Any other chatbot can be given its auto-built `output/context-pack.md`. Its **Start here** page has the full setup for each device and assistant. To show it in Daybook, go to **Knowledge map → Connect your vault** and enter the repo name plus a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with *Contents: Read and write* on that repo only. The token is stored on the device and never synced.
+
+## Agent setup (one-time, free)
+
+The agent's code is in [`agent/`](agent) and [`app/js/agent.js`](app/js/agent.js). It **runs from the private `second-brain` repo** (`.github/workflows/daybook-agent.yml`), so its Actions logs are private too. It only ever prints counts.
+1. Merge this repo's agent code to `main`. The workflow checks out `main`, or the branch set in the `DAYBOOK_AGENT_REF` repository variable.
+2. In **second-brain → Settings → Secrets and variables → Actions**, add a secret `DAYBOOK_GIST_TOKEN` with the same `gist`-scope token that sync uses. Optionally, add a variable `DAYBOOK_TZ` (default `Asia/Kolkata`).
+3. In second-brain's **Actions** tab, open **Daybook agent** and press **Run workflow** once. On the first run it creates its push keys and keeps them in the sync gist, in a separate `daybook-agent.json` file that the app ignores.
+4. In the app, go to **Agent → Turn on for this device** on each device. On iPhone or iPad, open Daybook from its Home Screen icon first (iOS 16.4+).
+
+It runs daily at about 07:00 (01:23 UTC; GitHub often starts scheduled runs a few minutes late). Anyone who can push to this repo's `main` could change code that runs with the gist token. Today that is only me. To lock it down, set `DAYBOOK_AGENT_REF` to a commit SHA. GitHub pauses scheduled workflows in a repo after 60 days without commits, so if the brief stops arriving, check second-brain's Actions tab.
 
 ## Friends setup (one-time, free)
 
@@ -100,6 +112,9 @@ app/                 the PWA (index.html, css/, js/, icons/, sw.js, manifest)
   js/dates.js        dates + natural-language parsing
   js/views/*.js      one file per screen
 scripts/fetch-news.mjs   feed poller used by the GitHub Action
+app/js/agent.js          morning brief rules, suggestions, approve/dismiss (shared by app and agent)
+agent/run.mjs            the scheduled agent job (run from second-brain's Actions)
+agent/webpush.mjs        Web Push (VAPID + aes128gcm) with node:crypto only
 news/sources.json        feeds to poll
 .github/workflows/deploy.yml   test → build (+ news) → deploy to Pages, every push and every 3h
 ```
@@ -107,4 +122,4 @@ news/sources.json        feeds to poll
 ### Notes and limits
 - GitHub disables scheduled workflows after 60 days with no repo activity. If news stops updating, click **Enable workflow** on the Actions tab (GitHub sends an email first).
 - Sync resolves conflicts per item: if the same item is edited on two devices while offline, the later edit wins.
-- There are no push notifications or reminders yet. Those would need a server.
+- The only push notification is the agent's morning brief. There are no per-event reminders yet.

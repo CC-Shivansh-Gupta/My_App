@@ -25,6 +25,7 @@ import * as screen from './views/screen.js';
 import * as stats from './views/stats.js';
 import * as gamify from './gamify.js';
 import * as friends from './views/friends.js';
+import * as agent from './views/agent.js';
 import * as social from './social.js';
 import * as voice from './voice.js';
 import * as G from './gym/model.js';
@@ -34,7 +35,7 @@ const VIEWS = {
   today: [today, 'todo'], calendar: [calendar, 'event'], tasks: [tasks, 'task'], habits: [habits, 'todo'],
   goals: [goals, 'goal'], gym: [gym, 'todo'], money: [expenses, 'expense'], notes: [notes, 'note'], brain: [brain, 'note'],
   reading: [reading, 'reading'], news: [news, 'reading'], settings: [settings, 'todo'],
-  friends: [friends, 'todo'], learn: [learn, 'learning'], watch: [watch, 'watch'], routine: [routine, 'track'], screen: [screen, 'todo'], stats: [stats, 'todo'],
+  friends: [friends, 'todo'], learn: [learn, 'learning'], watch: [watch, 'watch'], routine: [routine, 'track'], screen: [screen, 'todo'], stats: [stats, 'todo'], agent: [agent, 'todo'],
   more: [{ render: settings.renderMore }, 'todo'],
 };
 const ROUTES = Object.fromEntries(Object.entries(VIEWS).map(([k, [view, add]]) => [k, { ...ROUTE_META[k], view, add }]));
@@ -62,6 +63,7 @@ function navLink(name, { badge } = {}) {
 function renderNav() {
   const newsCount = news.unseenCount();
   const friendCount = social.unseenCount();
+  const agentCount = agent.pendingCount();
   const st = sync.status();
   syncDot.className = ['sync-dot', !st.enabled ? 'off' : st.error ? 'bad' : st.busy ? 'busy' : 'ok'].join(' ');
   syncDot.setAttribute('data-tip', !st.enabled ? 'Sync is off — set it up in Settings'
@@ -69,12 +71,12 @@ function renderNav() {
   sidebar.replaceChildren(
     h('div', { class: 'brand' }, h('img', { src: 'icons/icon.svg', alt: '', width: 28, height: 28 }), h('span', null, 'Daybook')),
     stats.levelChip(),
-    ...SIDEBAR.map((n) => navLink(n, { badge: n === 'news' ? newsCount : n === 'friends' ? friendCount : 0 })),
+    ...SIDEBAR.map((n) => navLink(n, { badge: n === 'news' ? newsCount : n === 'friends' ? friendCount : n === 'agent' ? agentCount : 0 })),
     h('div', { class: 'sidebar-foot' }, navLink('settings'), h('a', { href: '#/settings', class: 'sync-status' }, syncDot)));
   const tabs = bottomTabs();
   const hidden = (k) => !tabs.includes(k);
-  const moreBadge = (hidden('news') ? newsCount : 0) + (hidden('friends') ? friendCount : 0);
-  bottom.replaceChildren(...[...tabs, 'more'].map((n) => navLink(n, { badge: n === 'more' ? moreBadge : n === 'news' ? newsCount : n === 'friends' ? friendCount : 0 })));
+  const moreBadge = (hidden('news') ? newsCount : 0) + (hidden('friends') ? friendCount : 0) + (hidden('agent') ? agentCount : 0);
+  bottom.replaceChildren(...[...tabs, 'more'].map((n) => navLink(n, { badge: n === 'more' ? moreBadge : n === 'news' ? newsCount : n === 'friends' ? friendCount : n === 'agent' ? agentCount : 0 })));
   const w = G.activeWorkout();
   workoutPill.hidden = !w || current === 'gym';
   if (w) workoutPill.replaceChildren(icon('gym', 18), h('span', null, w.name), h('span', { class: 'w-clock' }, G.fmtClock((Date.now() - w.startedAt) / 1000)));
@@ -208,7 +210,7 @@ function boot() {
     if (isSheetOpen()) return;
     if (e.key === 'n' || e.key === 'N' || e.key === '+') { e.preventDefault(); quickAdd({ kind: ROUTES[current].add }); return; }
     if (e.key === 'v' || e.key === 'V') { e.preventDefault(); openVoice(); return; }
-    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', i: 'brain', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats', f: 'friends' }[e.key];
+    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', i: 'brain', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats', f: 'friends', a: 'agent' }[e.key];
     if (jump && !isSheetOpen()) location.hash = `#/${jump}`;
   });
 
