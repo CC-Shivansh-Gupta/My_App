@@ -922,3 +922,8 @@ button.tpl-card:hover { border-color: var(--axis); background: var(--surface-2);
 .link-suggest[hidden] { display: none; }
 .link-suggest button { min-height: 40px; padding: 8px 12px; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; }
 .link-suggest button:hover { background: var(--surface-2); }
+
+/* Agent */
+.brief-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.4; }
+.agent-sugg .icon-btn.good { color: var(--good-ink); }
+.agent-run .row-main { gap: 2px; }

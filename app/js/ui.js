@@ -76,6 +76,7 @@ const ICONS = {
   dots: '<circle cx="12" cy="5.5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="18.5" r="1.4"/>',
   graph: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="8" cy="18" r="2.5"/><circle cx="17.5" cy="17.5" r="1.8"/><path d="M8.4 6.6 15.6 7.5M7 8.3 7.7 15.5M16.6 10.2l-6.8 6M17.8 10.5l-.2 5.2"/>',
   fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  agent: '<rect x="4.5" y="7.5" width="15" height="12" rx="3"/><path d="M12 7.5V4M9.5 13v1M14.5 13v1M2.5 12.5v3M21.5 12.5v3"/><circle cx="12" cy="3.5" r="1"/>',
   star: '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
 };
 

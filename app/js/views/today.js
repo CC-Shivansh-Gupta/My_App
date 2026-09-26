@@ -12,6 +12,7 @@ import * as learn from './learnings.js';
 import * as routine from './routine.js';
 import * as screen from './screen.js';
 import { levelChip } from './stats.js';
+import * as agent from './agent.js';
 
 let day = null; // date being viewed; null = follow the real "today"
 
@@ -33,7 +34,7 @@ export function render(ctx) {
 
   return h('div', { class: 'page' }, header,
     h('div', { class: 'grid-2' },
-      h('div', { class: 'stack' }, isToday ? routine.todayCard() : null, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null, isToday ? learn.todayCard() : null),
+      h('div', { class: 'stack' }, isToday ? agent.todayCard() : null, isToday ? routine.todayCard() : null, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null, isToday ? learn.todayCard() : null),
       h('div', { class: 'stack' }, isToday ? gym.todayCard() : null, habitsCard(date), spendCard(date), isToday ? screen.todayCard() : null, readingCard(), isToday ? newsCard() : null)));
 }
 

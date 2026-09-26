@@ -18,13 +18,14 @@ export const ROUTE_META = {
   watch: { title: 'Watch list', icon: 'watch', sub: 'Movies, shows & videos' },
   screen: { title: 'Screen time', icon: 'screen', sub: 'Across phone, iPad & laptop' },
   friends: { title: 'Friends', icon: 'friends', sub: 'Leaderboard, challenges & sharing' },
+  agent: { title: 'Agent', icon: 'agent', sub: 'Morning brief and suggestions' },
   stats: { title: 'Stats', icon: 'stats', sub: 'Level, XP, quests & badges' },
   news: { title: 'News', icon: 'news', sub: 'Papers, jobs & posts for you' },
   settings: { title: 'Settings', icon: 'settings', sub: 'Sync, voice, budget, backup' },
   more: { title: 'More', icon: 'more', sub: '' },
 };
 
-export const SIDEBAR = ['today', 'calendar', 'tasks', 'habits', 'routine', 'goals', 'gym', 'money', 'notes', 'brain', 'learn', 'reading', 'watch', 'news', 'screen', 'stats', 'friends'];
+export const SIDEBAR = ['today', 'agent', 'calendar', 'tasks', 'habits', 'routine', 'goals', 'gym', 'money', 'notes', 'brain', 'learn', 'reading', 'watch', 'news', 'screen', 'stats', 'friends'];
 export const DEFAULT_TABS = ['today', 'calendar', 'tasks', 'habits', 'money'];
 
 // The five sections pinned to the phone's bottom bar (the sixth slot is always "More").

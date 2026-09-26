@@ -9,6 +9,7 @@ const SHELL = [
   'js/views/habits.js', 'js/views/expenses.js', 'js/views/news.js', 'js/views/settings.js',
   'js/views/notes.js', 'js/views/gym.js', 'js/views/goals.js', 'js/views/learnings.js', 'js/views/watch.js',
   'js/views/routine.js', 'js/views/screen.js', 'js/views/stats.js', 'js/views/friends.js',
+  'js/agent.js', 'js/views/agent.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 
@@ -45,5 +46,26 @@ self.addEventListener('fetch', (e) => {
       if (req.mode === 'navigate') return cache.match('index.html');
       throw new Error('offline');
     }
+  })());
+});
+
+// Notifications from the agent (sent by agent/run.mjs through the browser's push service).
+self.addEventListener('push', (e) => {
+  let msg = {};
+  try { msg = e.data ? e.data.json() : {}; } catch { msg = { body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(msg.title || 'Daybook', {
+    body: msg.body || '', tag: msg.tag || 'daybook', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
+    data: { url: msg.url || '#/agent' },
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(`./${e.notification.data?.url || ''}`, self.registration.scope).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const win = wins.find((c) => c.url.startsWith(self.registration.scope));
+    if (win) { await win.focus(); return win.navigate(url).catch(() => {}); }
+    return self.clients.openWindow(url);
   })());
 });
