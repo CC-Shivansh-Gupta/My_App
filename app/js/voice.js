@@ -20,6 +20,7 @@ import * as X from './gamify.js';
 import * as V from './vices.js';
 import * as W from './whisper.js';
 import * as S from './jarvis/speech.js';
+import * as A from './jarvis/audio.js';
 
 const tidy = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -68,23 +69,26 @@ function deviceVoice() {
   return (want && list.find((v) => v.name === want)) || list[0] || null;
 }
 
-function speakDevice(text) {
+function speakDevice(text, { queued = false } = {}) {
   if (!('speechSynthesis' in window)) return Promise.resolve();
   return new Promise((resolve) => {
+    let done = false;
+    const end = () => { if (done) return; done = true; A.setSynthSpeaking(false); resolve(); };
     try {
-      speechSynthesis.cancel();
+      if (!queued) speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       const voice = deviceVoice();
       u.lang = voice?.lang || lang();
       if (voice) u.voice = voice;
       u.rate = 1;
       u.pitch = 1;
-      u.onend = resolve;
-      u.onerror = resolve;
+      u.onstart = () => A.setSynthSpeaking(true);
+      u.onend = end;
+      u.onerror = end;
       speechSynthesis.speak(u);
       // Some browsers never fire onend; don't wait forever.
-      setTimeout(resolve, 1500 + text.length * 90);
-    } catch { resolve(); }
+      setTimeout(end, 1500 + text.length * 90);
+    } catch { end(); }
   });
 }
 
@@ -94,23 +98,69 @@ export function localVoice() {
   return r.startsWith('local:') ? r.slice(6) : null;
 }
 
+const forEar = (text) => String(text || '').replace(/[*_#`]/g, '').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
+
+// Things to say, spoken in order. The voice for the next sentence is made while the current one
+// plays, so a reply can be spoken sentence by sentence while the AI is still writing it.
+// Returns { add(text), finish() → Promise, stop(), on }.
+let activeQueue = null;
+export function speechQueue({ force = false } = {}) {
+  activeQueue?.stop();
+  const on = Boolean(force || store.pref('voiceReplies', true));
+  const token = {};
+  let chain = Promise.resolve();
+  let current = null;
+  const q = {
+    on,
+    add(text) {
+      const plain = forEar(text);
+      if (!on || token.stopped || !plain) return;
+      for (const part of plain.match(/[^.!?]+[.!?]*\s*/g) || [plain]) {
+        const lv = localVoice();
+        const ctx = W.unlockAudio();
+        let clip = null;
+        if (lv && ctx) clip = S.generateLocal(part, lv, ctx, token);
+        else if (W.cloudVoice()) clip = W.fetchCloud(part);
+        clip?.catch((e) => { if (!token.stopped) console.warn('Voice failed, using the device voice', e); });
+        chain = chain.then(async () => {
+          if (token.stopped) return;
+          let buf = null;
+          if (clip) { try { buf = await clip; } catch { buf = null; } }
+          if (token.stopped) return;
+          if (buf) { current = A.play(buf, W.unlockAudio()); await current.done; current = null; } else await speakDevice(part.trim(), { queued: true });
+        });
+      }
+    },
+    finish: () => chain,
+    stop() {
+      if (token.stopped) return;
+      token.stopped = true;
+      current?.stop();
+      try { speechSynthesis?.cancel(); } catch { /* ignore */ }
+      A.setSynthSpeaking(false);
+      if (activeQueue === q) activeQueue = null;
+    },
+    get stopped() { return Boolean(token.stopped); },
+  };
+  activeQueue = q;
+  return q;
+}
+
 // Speaks `text`; resolves when it has finished (so a conversation can listen again).
 export async function speak(text, { force = false } = {}) {
   if ((!force && !store.pref('voiceReplies', true)) || !text) return;
   stopSpeaking();
-  const plain = text.replace(/[*_#`]/g, '').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '');
-  if (localVoice()) {
-    try { return await S.speakLocal(plain, localVoice(), W.unlockAudio()); } catch (e) { console.warn('Local voice failed', e); }
-  } else if (W.cloudVoice()) {
-    try { return await W.speakCloud(plain); } catch { /* fall back to the device voice */ }
-  }
-  return speakDevice(plain);
+  const q = speechQueue({ force });
+  q.add(text);
+  return q.finish();
 }
 
 export function stopSpeaking() {
+  activeQueue?.stop();
   W.stopSpeaking();
   S.stopLocal();
   try { speechSynthesis?.cancel(); } catch { /* ignore */ }
+  A.setSynthSpeaking(false);
 }
 
 // Money for the ear: "₹1,200" → "1,200 rupees"

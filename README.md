@@ -36,7 +36,19 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 
   **Ears and voice, also free:** the browser's own recognizer; **on-device Whisper** (open weights, ~80 MB, which also works in the iPad/iPhone home-screen app, needs no key and keeps audio on the device); or cloud Whisper with a Groq/OpenAI key. For replies, the most natural device voice, the open-weights **Kokoro** voice running on the device (British "George" for the full Jarvis), or OpenAI's voices. **Keep the conversation going** makes it listen again after each spoken reply until you say "thanks". The **wake word** (Chrome/Edge) lets you say "Jarvis, add milk to my list" while the app is open. You can rename it and tell it what to call you.
 
-  Brain choices (on-device, Ollama, wake word, reply voice) stay on each device. The **keys** (cloud AI key, Whisper key) and your vault connection travel with sync, encrypted, so you enter them once. Memories, learned phrases and usage counts sync like your other data. Code: `app/js/jarvis/` (`core.js` routing and learning, `memory.js`, `llm.js`, `context.js`, `speech.js`, `wake.js`, `panel.js`) and `app/js/views/jarvis.js`.
+  **What makes it feel like JARVIS** (all free):
+  - **It talks back fast.** AI replies stream in and are spoken a sentence at a time while the rest is still being written, so the first words arrive in well under a second instead of after the whole answer. Short sound cues say "heard you", "thinking" and "done". **Talk over it to interrupt**: it stops and listens (off by default on iPhone/iPad, where an open mic can quieten the speaker).
+  - **The orb.** An arc-reactor ring that breathes when idle, follows your voice while listening, spins while thinking and pulses with its own voice. **HUD mode** (`D`, or the HUD button) is a full-screen, dark view for a laptop or an iPad on a stand: the orb, your day as rings (day, habits, to-dos, budget), what's next, routine, level and streaks, running protocol timers, and a live feed of everything Jarvis did or noticed. Tap the orb, press Space or say the wake word.
+  - **It speaks first.** While the app is open it watches for things worth saying: a meeting in 10 minutes, a routine block starting, a streak about to break after 8:30 pm, spending ahead of the budget, overdue tasks in the morning, Claude's answers, rain within two hours, you arriving at a place you named, and "it's 1 am". The most important one comes as a banner (or out loud: Jarvis page → Character → Speaks first), and never twice. Back after four hours or more, you get "while you were away". Say "I'll finish the report tonight" and it becomes a to-do **and a promise**: if the time passes and it isn't done, Jarvis brings it up ("You said you'd finish the report last night. Shall I move it to today?"); if you did it, it notices that too.
+  - **Personality.** Calm, dry British wit; says so, once, when you're about to do something unwise. It varies how it acknowledges things even on the free rules path, and now and then remarks on your data ("That puts us over budget for the month. Shall I alert the finance department?"). It calls you by your name, "sir", "ma'am" or nothing, as you choose. **Plain** mode turns it off.
+  - **Protocols.** One phrase, a whole plan: "engage focus protocol" starts tracking deep work, puts a 50-minute countdown on the HUD, switches to HUD mode, and 50 minutes later stops the clock and tells you which habits are left. Steps are Daybook commands plus `say`, `wait 20 min`, `timer 50 min Focus`, `notify`, `hud`/`hud off` and `if <condition>: …` (habits left, todos left, tasks overdue, over budget, events left, weekday, weekend, before/after a time, tracking, raining, at a place, home). A protocol can also run by itself at a set time on chosen days. Built in: Focus, Good night, Morning, Clean slate and House party. Say the name of one you haven't added yet and it's added and run. "Stand down" cancels everything.
+  - **Photos.** The camera button (in the sheet and the HUD) shows it a photo: a book cover goes to Reading, a receipt becomes an expense, a whiteboard or list becomes tasks, a poster or invitation becomes an event, a business card becomes a note. It uses a free vision model: Groq, Gemini or OpenRouter with the same key, or an Ollama vision model such as `qwen2.5vl:3b`.
+  - **Your home.** With Home Assistant connected (Jarvis page → Your home): "lights to 30%", "turn off the kitchen lights", "set the thermostat to 22", "scene movie night", "lock the front door", "is the garage open?". These are instant and use no AI; the AI and protocols can use the same phrases.
+  - **Weather and places.** Open-Meteo, free with no key: "what's the weather", "weather tomorrow", "do I need an umbrella", "should I take a jacket". "Remember this place as the gym" names where you are, so it notices when you arrive ("You're at the gym. Shall I start Push?"). Also "where am I" and "battery".
+  - **3D hologram.** Knowledge map → **Hologram** shows your notes and vault floating in 3D. Drag to turn it, scroll to zoom, tap a dot to read it. **Hand control** uses the webcam with MediaPipe running in the browser (the video never leaves the device): pinch and drag to rotate, pinch with both hands to zoom, a quick pinch to select, swipe an open palm to spin, hold a fist to reset.
+  - **Always listening, with the laptop companion.** The browser can only listen while Daybook is open. `companion/jarvis_companion.py` runs on your computer and listens for "Hey Jarvis" all the time, even with the tab in the background or the screen off. It uses openWakeWord, faster-whisper and Piper, all open-weights and running on the computer. What you say goes to the open Daybook tab over a local WebSocket, and the reply is spoken sentence by sentence as it comes back. With no tab open, it opens one. See [Laptop companion](#laptop-companion-optional-free). On iPhone, a Shortcut "Jarvis" (Dictate Text → Open URL `…/My_App/?ask=` + the text) gives you "Hey Siri, Jarvis".
+
+  Brain choices (on-device, Ollama, wake word, reply voice) stay on each device. The **keys** (cloud AI key, Whisper key, Home Assistant token) and your vault connection travel with sync, encrypted, so you enter them once. Memories, learned phrases, protocols, promises, named places and usage counts sync like your other data. Running protocol timers and the weather cache stay on the device that started them. Code: `app/js/jarvis/`: `core.js` (routing, plugins and learning), `convo.js` (the conversation: streaming speech, cues, interrupting), `stream.js`, `audio.js`, `orb.js`, `protocols.js`, `proactive.js`, `promises.js`, `persona.js`, `world.js`, `home.js`, `companion.js`, `memory.js`, `llm.js`, `context.js`, `speech.js`, `wake.js`, `panel.js`. Also `app/js/views/jarvis.js` and `views/hud.js`, plus `hologram.js`, `graph3d.js` and `gestures.js` for the 3D map.
 - **Agent**: a small team of scheduled jobs that run in my private second-brain repo, for free:
   - **Morning brief** (about 7am): today's events, to-dos, overdue tasks, streaks at risk, budget pace, and goals running out of time.
   - **Evening check-in** (about 9pm): a notification only when something's missing ("Log today's spending? · Screen time? · 2 habits unticked"), plus an offer to move unfinished to-dos to tomorrow.
@@ -58,7 +70,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
   - `Deep Work by Cal Newport`
 - Each section also has an inline box: type and press Enter.
 - Deleting shows an **Undo** toast instead of an "are you sure?" dialog.
-- Keyboard shortcuts on a laptop: `N` add, `V` talk to Jarvis, `J` Jarvis page, `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `U` Routine, `M` Money, `O` Notes, `I` Knowledge map, `L` Learnings, `R` Reading, `B` Watch list, `W` News, `S` Stats, `F` Friends, `A` Agent.
+- Keyboard shortcuts on a laptop: `N` add, `V` talk to Jarvis, `J` Jarvis page, `D` HUD mode (Space talks, Esc leaves), `T` Today, `C` Calendar, `K` Tasks, `H` Habits, `G` Goals, `Y` Gym, `U` Routine, `M` Money, `O` Notes, `I` Knowledge map, `L` Learnings, `R` Reading, `B` Watch list, `W` News, `S` Stats, `F` Friends, `A` Agent.
 - On a phone you choose which five sections sit in the bottom bar (Settings → Bottom bar). The rest are under More.
 
 ## How it runs everywhere for free
@@ -70,6 +82,9 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 | Sync between devices | Each device merges its data with a **secret GitHub Gist** on my account (newest edit per item wins) | free |
 | Agent | Scheduled GitHub Actions in the private `second-brain` repo read and write the same secret gist, and send Web Push notifications themselves, so no server is needed | free (about 90 of the 2,000 free private-repo minutes a month) |
 | Jarvis's AI | Open-weights models on the device (WebLLM) or via Ollama; or Groq's free tier, capped per day. Most requests need no AI at all | free |
+| Weather | Open-Meteo, straight from the browser, no key | free |
+| Hand tracking for the hologram | MediaPipe in the browser (on-device) | free |
+| Laptop companion (optional) | openWakeWord + faster-whisper + Piper on your computer | free |
 | Claude for big asks (optional) | Claude Code in the agent's Actions job, on your existing Claude plan | no extra cost |
 | Sign-in | Password-encrypted sync token in a public gist; keys encrypted in the secret gist | free |
 | AI for the agent (optional) | Any OpenAI-compatible API; the default is Groq's free tier (no card, and it doesn't keep inference data by default) | free, rate-limited |
@@ -119,6 +134,16 @@ Claude can't be called straight from a web page on your plan. Your Claude subscr
 
 From then on every agent run first answers any waiting “ask Claude …” requests. It then sends a push notification (“Claude answered”), and the answers wait on the Jarvis page for **Do it** or **Dismiss**. With no `AI_API_KEY` secret, Claude also writes the brief summaries and reads your notes and emails. With one, those keep using the free key and Claude only answers your requests. Claude runs in an empty folder with shell, editing and web tools switched off, so it only reads the prompt (your request plus the same short summary of your day Jarvis uses) and writes an answer. Code: `agent/claude.mjs`, `app/js/jarvis/asks.js`.
 
+## Laptop companion (optional, free)
+
+For "Hey Jarvis" at any time on your computer, not just while Daybook is in front of you.
+
+1. Install Python 3.10 or newer, then from this repo: `pip install -r companion/requirements.txt`.
+2. Run `python companion/jarvis_companion.py`. For a natural British voice, download a [Piper voice](https://github.com/rhasspy/piper/blob/master/VOICES.md) (for example `en_GB-alan-medium.onnx` and its `.json`) and add `--piper-voice en_GB-alan-medium.onnx`. Without it, the system voice is used.
+3. In Daybook on the same computer: **Jarvis page → Laptop companion → On**. Chrome may ask to allow access to devices on your local network. Allow it.
+
+Say "Hey Jarvis, what's on tomorrow?". The companion hears the wake word and transcribes on your computer, and Jarvis in the tab answers with all your data. The reply is spoken as it arrives. The link is a WebSocket on `127.0.0.1` that only Daybook's own address may open, so another website can't listen in. Options: `--text` (type instead of talking, no mic needed), `--whisper small.en` (more accurate, slower), `--threshold 0.4` (hears the wake word more easily), `--no-conversation` (stop listening after each reply), and `--url` if you host Daybook somewhere else.
+
 ## Friends setup (one-time, free)
 
 Groups use a free Firebase Realtime Database that the group creator owns. Friends don't need to set anything up.
@@ -145,7 +170,7 @@ Anyone with the invite link can read and post in that group, so share it only wi
 ```sh
 npm start        # serves app/ at http://localhost:8080
 npm run news     # fetch news into app/data/news.json (for local testing)
-npm test         # unit tests (date parsing, sync merge, feed parsing)
+npm test         # unit tests (date parsing, sync merge, feed parsing, Jarvis)
 npm run icons    # regenerate icons
 ```
 
@@ -159,7 +184,12 @@ app/                 the PWA (index.html, css/, js/, icons/, sw.js, manifest)
   js/login.js        password sign-in for new devices
   js/dates.js        dates + natural-language parsing
   js/views/*.js      one file per screen
-  js/jarvis/         the assistant: routing, memory & learning, LLM engines, on-device speech, wake word, conversation panel
+  js/jarvis/         the assistant: routing and plugins, conversation (streaming speech, interrupting), orb, protocols,
+                     proactive notices and promises, personality, weather and places, Home Assistant, companion link,
+                     memory & learning, LLM engines, on-device speech, wake word, talk sheet
+  js/views/hud.js    HUD mode
+  js/hologram.js     the 3D knowledge map (graph3d.js layout, gestures.js hand control)
+companion/           the laptop companion: always-on wake word, Whisper and Piper, linked to the open tab
 scripts/fetch-news.mjs   feed poller used by the GitHub Action
 app/js/agent.js          brief, check-in and weekly review rules; suggestions, approve/dismiss (shared by app and agent)
 agent/run.mjs            the scheduled jobs and the "auto" manager that picks them (run from second-brain's Actions)

@@ -11,6 +11,7 @@ import * as G from '../gym/model.js';
 import * as R from '../views/routine.js';
 import * as vault from '../vault.js';
 import { overlap } from './memory.js';
+import * as world from './world.js';
 
 const cut = (s, n = 60) => {
   s = String(s || '').replace(/\s+/g, ' ').trim();
@@ -72,6 +73,9 @@ export function snapshot(t = D.today(), now = new Date()) {
   const tpl = G.templates().map((x) => x.name);
   const w = G.activeWorkout();
   if (tpl.length || w) out.push(`Workouts: ${w ? `in progress (${w.name}). ` : ''}${tpl.length ? `templates ${list(tpl, 6)}` : ''}.`);
+
+  const wx = world.cached();
+  if (wx) out.push(`Weather: ${world.describe(wx)}`);
 
   try {
     const s = X.summary();

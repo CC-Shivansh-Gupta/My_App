@@ -4,6 +4,8 @@
 //   voice   — Kokoro (82M, ~90 MB): a natural voice, including British ones for the full Jarvis effect.
 // Both download once on first use and are cached by the browser.
 
+import * as A from './audio.js';
+
 const TRANSFORMERS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js';
 const KOKORO = 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js';
 
@@ -85,27 +87,40 @@ export function stopLocal() {
   playing = null;
 }
 
+// Kokoro can only make one clip at a time, so requests wait their turn; each one starts as soon
+// as the previous is made, so the next sentence is usually ready before this one finishes playing.
+let queue = Promise.resolve();
+// Pass a `token` and set token.stopped to skip clips that are no longer wanted.
+export function generateLocal(text, voice = 'bm_george', ctx, token = null) {
+  const job = queue.then(async () => {
+    if (token?.stopped) throw new Error('stopped');
+    const model = await synth();
+    const audio = await model.generate(text, { voice });
+    const buf = ctx.createBuffer(1, audio.audio.length, audio.sampling_rate);
+    buf.copyToChannel(audio.audio, 0);
+    return buf;
+  });
+  queue = job.catch(() => {});
+  return job;
+}
+
 // Speaks `text` through `ctx` (an unlocked AudioContext); resolves when it has finished.
 // Long replies are spoken sentence by sentence, so the first words come out quickly.
 export async function speakLocal(text, voice = 'bm_george', ctx) {
-  const model = await synth();
+  await synth();
   stopLocal();
   const token = {};
-  playing = { stop() { token.stopped = true; token.src?.stop(); } };
+  playing = { stop() { token.stopped = true; token.clip?.stop(); } };
   const own = playing;
   const parts = String(text).match(/[^.!?]+[.!?]*\s*/g) || [text];
-  let next = model.generate(parts[0], { voice });
-  for (let i = 0; i < parts.length; i++) {
-    const audio = await next;
+  const clips = parts.map((p) => generateLocal(p, voice, ctx, token));
+  clips.forEach((c) => c.catch(() => {}));
+  for (const clip of clips) {
+    let buf;
+    try { buf = await clip; } catch (e) { if (token.stopped) return; throw e; }
     if (token.stopped) return;
-    if (i + 1 < parts.length) next = model.generate(parts[i + 1], { voice });
-    const buf = ctx.createBuffer(1, audio.audio.length, audio.sampling_rate);
-    buf.copyToChannel(audio.audio, 0);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    token.src = src;
-    await new Promise((resolve) => { src.onended = resolve; src.start(); });
+    token.clip = A.play(buf, ctx);
+    await token.clip.done;
     if (token.stopped) return;
   }
   if (playing === own) playing = null;
