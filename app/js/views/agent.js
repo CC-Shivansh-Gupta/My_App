@@ -16,7 +16,7 @@ export function render(ctx) {
     h('header', { class: 'page-head' }, h('h1', null, 'Agent'),
       h('p', { class: 'muted' }, 'Briefs, check-ins and suggestions from the agent in your second-brain repo. Nothing changes until you approve it.')),
     ran ? null : setupCard(),
-    briefCard(), inboxCard(), weekCard(), notifyCard(ctx), autonomyCard(), aiCard(), logCard());
+    briefCard(), inboxCard(), mailCard(), weekCard(), notifyCard(ctx), autonomyCard(), aiCard(), logCard());
 }
 
 // ---- Today card ----------------------------------------------------------------------------------
@@ -45,6 +45,21 @@ function suggestionRow(s) {
 }
 
 // ---- Page cards ---------------------------------------------------------------------------------
+function mailCard() {
+  const run = A.latestRun('mail-scan', D.addDays(D.today(), -2));
+  const body = run
+    ? h('div', { class: 'stack-sm' }, h('p', { class: 'small muted' }, `Last checked ${D.fmtDate(run.date)} at ${new Date(run.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`),
+      h('ul', { class: 'brief-lines' }, run.brief.map((l) => h('li', null, l))))
+    : h('div', { class: 'stack-sm' },
+      h('p', { class: 'small' }, 'The agent can check your inboxes (Gmail, college mail and most others) a few times a day, read-only, and suggest calendar events and tasks from invites, interviews, exams and deadlines. LinkedIn and X notification emails count too. Suggestions wait here for your OK.'),
+      h('ol', { class: 'small steps' },
+        h('li', null, 'Gmail (and college mail run by Google): turn on 2-step verification, then create an app password at ', h('a', { href: 'https://myaccount.google.com/apppasswords', target: '_blank', rel: 'noopener' }, 'myaccount.google.com/apppasswords'), '.'),
+        h('li', null, 'In second-brain, add a secret named ', h('code', null, 'MAIL_ACCOUNTS'), ' with one line per inbox: ', h('code', null, 'you@gmail.com app-password'), '. For other servers put the server first: ', h('code', null, 'imap.college.edu you@college.edu password'), '.'),
+        h('li', null, 'College mail on Microsoft 365 (Outlook) usually blocks password sign-in. Forward it to your Gmail instead: Outlook on the web → Settings → Mail → Forwarding.'),
+        h('li', null, 'Optional: switch on “Read new emails” under AI below for smarter picks.')));
+  return section('Email', h('span', { class: ['badge', run && 'good'] }, run ? 'Checking' : 'Not set up'), body);
+}
+
 function briefCard() {
   const brief = A.latestBrief(D.today());
   return section('This morning', brief ? h('span', { class: 'count' }, new Date(brief.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : null,
@@ -76,7 +91,10 @@ function aiCard() {
       h('div', { class: 'field' }, h('span', { class: 'field-label' }, '✨ Short written summary on the brief and weekly review'),
         segmented([[false, 'Off'], [true, 'On']], s.summary, (v) => A.setAI('summary', v), { small: true })),
       h('div', { class: 'field' }, h('span', { class: 'field-label' }, '📝 Find tasks hidden in my notes (morning)'),
-        segmented([[false, 'Off'], [true, 'On']], s.notes, (v) => A.setAI('notes', v), { small: true }))));
+        segmented([[false, 'Off'], [true, 'On']], s.notes, (v) => A.setAI('notes', v), { small: true })),
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, '📬 Read new emails to find events, deadlines and what’s worth a look'),
+        segmented([[false, 'Off'], [true, 'On']], s.mail, (v) => A.setAI('mail', v), { small: true }),
+        h('span', { class: 'field-hint' }, 'Sender, subject and the start of each new email go to the AI provider. Emails with one-time codes or password resets never do. Off: only calendar invites and obvious subjects (“Interview Monday 3 pm”) are picked up.'))));
 }
 
 function inboxCard() {

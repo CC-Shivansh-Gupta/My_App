@@ -12,7 +12,8 @@
 // No DOM here: the app injects `execute` (voice.js) and `llm` (llm.js), and tests inject fakes.
 
 import * as D from '../dates.js';
-import { parseCommand } from '../intents.js';
+import { parseSmart } from '../dates.js';
+import { parseCommand, tidyTitle } from '../intents.js';
 import * as mem from './memory.js';
 
 // ---- When the rules are enough -----------------------------------------------------------------
@@ -350,6 +351,39 @@ export function createJarvis(deps) {
     return finish(res, text, reply.engine);
   }
 
+  // A message you shared or pasted (WhatsApp, SMS, an email…): pull out what it asks of you.
+  async function handleShared(input) {
+    const msg = String(input || '').trim().slice(0, 2500);
+    if (!msg) return { say: 'That was empty.', title: 'Nothing to read', via: 'rules' };
+    const label = `Shared: ${msg.split('\n')[0].slice(0, 60)}${msg.length > 60 ? '…' : ''}`;
+    if ((deps.llm?.engines?.() || []).length) {
+      try {
+        const reply = await askAI(`Here's a message I received (maybe from WhatsApp or a group chat):\n---\n${msg}\n---\n`
+          + 'Add what it asks of me, using commands: events it invites me to (with their day and time), tasks and to-dos with deadlines. '
+          + 'If there is nothing to do, say so in a few words and summarise it in one sentence.');
+        if (reply) {
+          const res = reply.do.length ? await runAll(reply.do, { lead: reply.say }) : { say: reply.say || 'Nothing to do there.', title: reply.say || 'Nothing to do there.', chat: true };
+          Object.assign(res, { engine: reply.engine, model: reply.model, tokens: reply.tokens });
+          return finish(res, label, reply.engine);
+        }
+      } catch { /* fall back to the rules */ }
+    }
+    // No AI: keep it as a note, and offer the one obvious thing the rules can see.
+    count('rules');
+    const flat = msg.replace(/[,;!?()“”"]+/g, ' ').replace(/\s+/g, ' ').slice(0, 300);
+    const p = parseSmart(flat, today());
+    const note = await runCommand(`note: ${msg}`);
+    const res = { say: 'Saved it as a note.', title: '📥 Saved as a note', sub: msg.slice(0, 140), undo: note.undo };
+    if (p.date || p.time) {
+      const when = [p.date ? D.fmtDate(p.date) : '', p.time ? D.fmtTime(p.time) : ''].filter(Boolean).join(' ');
+      const first = msg.split(/[,.!?\n]/)[0];
+      const title = tidyTitle(parseSmart(first, today()).title).slice(0, 60) || 'Event';
+      res.say = `Saved it as a note. It mentions ${when} — want it on your calendar?`;
+      res.alt = { keep: true, label: `Add to calendar: ${when}`, run: () => runAll([`schedule ${title} on ${p.date || today()}${p.time ? ` at ${p.time}` : ''}`]) };
+    }
+    return finish(res, label, 'rules');
+  }
+
   function undo({ quiet = false } = {}) {
     if (!last) return { say: 'There’s nothing to undo.', title: 'Nothing to undo', via: 'rules' };
     const { res, text } = last;
@@ -368,7 +402,7 @@ export function createJarvis(deps) {
     return { say: 'Undone.', title: 'Undone', via: 'rules' };
   }
 
-  return { handle, undo, undoResult, history, get fixing() { return fixing; } };
+  return { handle, handleShared, undo, undoResult, history, get fixing() { return fixing; } };
 }
 
 function pick(xs) { return xs[Math.floor(Math.random() * xs.length)]; }

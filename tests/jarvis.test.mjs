@@ -271,3 +271,26 @@ test('usage totals show how much was free', () => {
   assert.equal(t.free, 4);
   assert.equal(t.tokens, 400);
 });
+
+test('a shared WhatsApp message: the AI adds what it asks; without AI it becomes a note with an offer', async () => {
+  store.reset();
+  const app = fakeApp();
+  const llm = fakeLLM((prompt) => {
+    assert.match(prompt, /Dinner at mine Friday 8pm/);
+    return { say: 'Added dinner on Friday at 8.', do: ['schedule dinner at Riya’s friday at 8pm'] };
+  });
+  const J = createJarvis({ execute: app.execute, llm, now: NOW });
+  const r = await J.handleShared('Riya: Dinner at mine Friday 8pm? Bring dessert 🍰');
+  assert.equal(r.via, 'local');
+  assert.deepEqual(app.ran, ['schedule dinner at Riya’s friday at 8pm']);
+  assert.equal(mem.skills().length, 0, 'shared messages are never learned as phrases');
+
+  const plain = fakeApp();
+  const noAI = createJarvis({ execute: plain.execute, now: NOW });
+  const n = await noAI.handleShared('Team sync moved to Monday 4 pm, same link');
+  assert.equal(plain.ran[0], 'note: Team sync moved to Monday 4 pm, same link');
+  assert.match(n.say, /want it on your calendar/);
+  assert.equal(n.alt.keep, true);
+  await n.alt.run();
+  assert.match(plain.ran[1], /^schedule Team sync moved on \d{4}-\d{2}-\d{2} at 16:00$/);
+});

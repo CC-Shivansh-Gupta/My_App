@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs Daybook agent jobs against your sync gist:
-//   DAYBOOK_GIST_TOKEN=ghp_… node agent/run.mjs [auto|morning-brief|evening-checkin|weekly-review]
+//   DAYBOOK_GIST_TOKEN=ghp_… node agent/run.mjs [auto|morning-brief|evening-checkin|weekly-review|mail-scan]
 // "auto" is the manager: mornings run the brief; evenings run the check-in,
 // plus the weekly review on Sundays. It's meant for a scheduled GitHub Action
 // in a PRIVATE repo (see "Agent setup" in README.md).
@@ -13,15 +13,18 @@ import * as A from '../app/js/agent.js';
 import { client } from './gist.mjs';
 import { generateVapidKeys, sendPush } from './webpush.mjs';
 import { aiClient, summarize, findTasks } from './ai.mjs';
+import { mailScan, parseAccounts } from './mail.mjs';
 
 const BUILD = { 'morning-brief': A.morningBrief, 'evening-checkin': A.eveningCheckin, 'weekly-review': A.weeklyReview };
-export const JOBS = Object.keys(BUILD);
+export const JOBS = [...Object.keys(BUILD), 'mail-scan'];
 
-// Which jobs "auto" runs at this local time.
-export function plan(job, now = new Date()) {
+// Which jobs "auto" runs at this local time. With email set up, it's checked first, so the
+// brief and check-in include what just arrived.
+export function plan(job, now = new Date(), { mail = false } = {}) {
   if (job !== 'auto') return [job];
-  if (now.getHours() < 14) return ['morning-brief'];
-  return now.getDay() === 0 ? ['evening-checkin', 'weekly-review'] : ['evening-checkin'];
+  const first = mail ? ['mail-scan'] : [];
+  if (now.getHours() < 14) return [...first, 'morning-brief'];
+  return now.getDay() === 0 ? [...first, 'evening-checkin', 'weekly-review'] : [...first, 'evening-checkin'];
 }
 
 function slug(s) {
@@ -61,9 +64,13 @@ async function aiStep(ai, job, result, state, now) {
   return extra;
 }
 
-export async function run({ token, gistId, job = 'auto', subject, ai = null, fetchImpl = fetch, now = Date.now(), date = D.today() }) {
-  const jobs = plan(job, new Date(now));
-  for (const j of jobs) if (!BUILD[j]) throw new Error(`Unknown job "${j}". Jobs: auto, ${JOBS.join(', ')}`);
+export async function run({ token, gistId, job = 'auto', subject, ai = null, fetchImpl = fetch, now = Date.now(), date = D.today(), mail = [], mailFetch }) {
+  const jobs = plan(job, new Date(now), { mail: mail.length > 0 });
+  for (const j of jobs) if (!JOBS.includes(j)) throw new Error(`Unknown job "${j}". Jobs: auto, ${JOBS.join(', ')}`);
+  // Nothing to check: don't touch the gist at all.
+  if (jobs.length === 1 && jobs[0] === 'mail-scan' && !mail.length) {
+    return { jobs: [{ job: 'mail-scan', suggested: 0, done: 0, waiting: 0, notified: false, ai: 'off', skipped: 'no MAIL_ACCOUNTS secret' }], sent: 0, dropped: 0, failed: 0 };
+  }
   const gh = client(token, fetchImpl);
   const id = gistId || await gh.find();
   const { data, agent } = await gh.read(id);
@@ -78,6 +85,13 @@ export async function run({ token, gistId, job = 'auto', subject, ai = null, fet
 
   const results = [];
   for (const j of jobs) {
+    if (j === 'mail-scan') {
+      if (!mail.length) { results.push({ job: j, suggested: 0, done: 0, waiting: A.pending().length, notification: null, ai: 'off', skipped: 'no MAIL_ACCOUNTS secret' }); continue; }
+      const built = await mailScan({ accounts: mail, state, ai, useAI: A.aiSettings().mail, date, now, ...(mailFetch ? { fetchImpl: mailFetch } : {}) });
+      const { stats, notification } = A.record(built, { now, extra: { ai: { status: built.stats.ai } } });
+      results.push({ job: j, ...stats, notification, ai: built.stats.ai, scanned: built.stats.scanned, accounts: built.stats.accounts, errors: built.stats.errors });
+      continue;
+    }
     const built = BUILD[j](date);
     const extra = await aiStep(ai, j, built, state, now);
     const { stats, notification } = A.record(built, { now, extra });
@@ -127,10 +141,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   run({
     token, ai,
     job: process.argv[2] || 'auto',
+    mail: parseAccounts(process.env.MAIL_ACCOUNTS || ''),
     gistId: process.env.DAYBOOK_GIST_ID || undefined,
     subject: process.env.DAYBOOK_URL || 'https://cc-shivansh-gupta.github.io/My_App/',
   }).then((r) => {
     for (const j of r.jobs) {
+      if (j.job === 'mail-scan') {
+        console.log(j.skipped ? `mail-scan: skipped (${j.skipped}).` : `mail-scan: ${j.scanned} new emails in ${j.accounts} account(s)${j.errors ? `, ${j.errors} problem(s) (details on the Agent page)` : ''}; ${j.suggested} new suggestions, ${j.done} done automatically; AI: ${j.ai}.`);
+        continue;
+      }
       console.log(`${j.job} for ${D.today()}: ${j.suggested} new suggestions, ${j.done} done automatically, ${j.waiting} waiting for you; `
         + `${j.notified ? 'notification sent' : 'nothing to notify'}; AI: ${j.ai}.`);
     }
