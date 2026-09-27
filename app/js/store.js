@@ -5,7 +5,7 @@
 export const COLLECTIONS = ['events', 'todos', 'tasks', 'reading', 'habits', 'habitLogs',
   'expenses', 'newsMarks', 'prefs', 'notes', 'workouts', 'templates', 'exercises', 'measurements', 'goals', 'taskGroups',
   'learnings', 'watch', 'routine', 'routineLogs', 'timelog', 'screentime', 'vices', 'slips',
-  'agentInbox', 'agentLog', 'pushSubs'];
+  'agentInbox', 'agentLog', 'pushSubs', 'jarvisMemory', 'jarvisSkills', 'jarvisUsage'];
 
 const KEY = 'daybook.data.v1';
 const TOMBSTONE_TTL = 120 * 86400000;

@@ -74,7 +74,10 @@ export function tidyTitle(s) {
 
 const ROUTE_WORDS = { today: 'today', home: 'today', calendar: 'calendar', schedule: 'calendar', agenda: 'calendar', task: 'tasks',
   tasks: 'tasks', habit: 'habits', habits: 'habits', money: 'money', expense: 'money', expenses: 'money', spending: 'money',
-  budget: 'money', reading: 'reading', 'reading list': 'reading', books: 'reading', news: 'news', note: 'notes', notes: 'notes', settings: 'settings' };
+  budget: 'money', reading: 'reading', 'reading list': 'reading', books: 'reading', news: 'news', note: 'notes', notes: 'notes', settings: 'settings',
+  goal: 'goals', goals: 'goals', gym: 'gym', workouts: 'gym', routine: 'routine', 'day tracker': 'routine', stats: 'stats', level: 'stats',
+  friends: 'friends', agent: 'agent', learnings: 'learn', 'watch list': 'watch', watchlist: 'watch', 'screen time': 'screen',
+  'knowledge map': 'brain', 'second brain': 'brain', jarvis: 'jarvis', assistant: 'jarvis', memory: 'jarvis' };
 
 const CURRENCY = /(?:₹|\$|€|£|rs\.?|inr|rupees?|bucks|dollars?|euros?|pounds?)/i;
 const AMOUNT = new RegExp(`(?:${CURRENCY.source}\\s?)?(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?:\\s?${CURRENCY.source})?`, 'i');
@@ -95,8 +98,44 @@ export function parseCommand(input, base = todayStr()) {
   if (!t) return { type: 'empty' };
 
   // ---- navigation ----
-  let m = t.match(/^(?:open|go to|show(?: me)?|switch to|take me to|jump to)\s+(?:the\s+|my\s+)*(today|home|calendar|schedule|agenda|tasks?|habits?|money|expenses?|spending|budget|reading(?: list)?|books|news|notes?|settings)(?:\s+(?:page|tab|screen|section))?$/);
-  if (m) return { type: 'navigate', route: ROUTE_WORDS[m[1]] };
+  let m = t.match(/^(?:open|go to|show(?: me)?|switch to|take me to|jump to)\s+(?:the\s+|my\s+)*(today|home|calendar|schedule|agenda|tasks?|habits?|money|expenses?|spending|budget|reading(?: list)?|books|news|notes?|settings|goals?|gym|workouts|routine|day tracker|stats|level|friends|agent|learnings|watch ?list|screen time|knowledge map|second brain|jarvis|assistant|memory)(?:\s+(?:page|tab|screen|section))?$/);
+  if (m) return { type: 'navigate', route: ROUTE_WORDS[m[1]] || ROUTE_WORDS[m[1].replace(' ', '')] };
+
+  // ---- your knowledge map (second-brain vault) ----
+  m = raw.match(/^(?:add|save|put|send|capture|write|jot|drop)\s+(?:this\s+|that\s+)?(?:to|in|into|on)\s+(?:my\s+|the\s+)?(?:knowledge (?:base|map)|second brain|vault|obsidian|brain)\b[\s:,-]*(?:that\s+)?(.+)$/i)
+    || raw.match(/^(?:brain ?dump|for my (?:second brain|vault|knowledge base))\b[\s:,-]*(.+)$/i)
+    || raw.match(/^(?:add|save|put|send|capture|write)\s+(.+?)\s+(?:to|in|into|on)\s+(?:my\s+|the\s+)?(?:knowledge (?:base|map)|second brain|vault|obsidian)$/i);
+  if (m) return { type: 'knowledge', text: m[1].trim().charAt(0).toUpperCase() + m[1].trim().slice(1) };
+
+  // ---- changing what's already there ----
+  m = raw.match(/^rename\s+(?:the\s+|my\s+)?(.+?)\s+(?:to|as)\s+(.+)$/i);
+  if (m) return { type: 'rename', ...target(m[1]), title: tidyTitle(m[2]) };
+  m = raw.match(/^(?:make|set|mark|change)\s+(?:the\s+|my\s+)?(.+?)\s+(?:to\s+|as\s+|a\s+)?(?:(high|top|medium|normal|low)\s+priority|(urgent|important))$/i);
+  if (m) return { type: 'priority', ...target(m[1]), priority: /^(high|top)$/i.test(m[2] || '') || m[3] ? 3 : /^(medium|normal)$/i.test(m[2]) ? 2 : 1 };
+  m = raw.match(/^(?:move|reschedule|push(?:\s+back)?|shift|postpone|delay|bring(?:\s+forward)?|change\s+(?:the\s+)?(?:date|time|day|due date|deadline)\s+(?:of|for|on))\s+(?:the\s+|my\s+)?(.+?)\s+(?:to|till|until|for|on|by)\s+(.+)$/i);
+  if (m) {
+    const p = parseSmart(` ${m[2]} `, base);
+    const by = m[2].match(/^(?:a|one|\d+)\s+(day|days|week|weeks)$/i);
+    if (p.date || p.time || by) {
+      const n = by ? (Number(m[2].match(/\d+/)?.[0]) || 1) * (/week/i.test(by[1]) ? 7 : 1) : 0;
+      return { type: 'move', ...target(m[1]), to: p.date, time: p.time, endTime: p.endTime, days: n || null };
+    }
+  }
+  m = raw.match(/^(?:postpone|push back|delay|snooze)\s+(?:the\s+|my\s+)?(.+?)$/i);
+  if (m) return { type: 'move', ...target(m[1]), to: null, time: null, endTime: null, days: 1 };
+  m = raw.match(/^(delete|remove|cancel|scrap|get rid of|erase)\s+(?:the\s+|my\s+)?(all\s+|every\s+)?(.+?)(?:\s+(?:off|from|in)\s+(?:my\s+|the\s+)?(calendar|schedule|agenda|to-?do list|to-?dos?|list|tasks?|task list|watch ?list|reading list|goals?))?$/i);
+  if (m && !/^(?:that|this|it|workout|my workout)$/i.test(m[3])) {
+    const where = (m[4] || '').toLowerCase();
+    const kind = /calendar|schedule|agenda/.test(where) ? 'event' : /to-?do|^list/.test(where) ? 'todo' : /task/.test(where) ? 'task'
+      : /watch/.test(where) ? 'watch' : /reading/.test(where) ? 'reading' : /goal/.test(where) ? 'goal' : null;
+    const tg = target(m[3]);
+    const p = parseSmart(` ${tg.target} `, base);
+    const out = { type: 'delete', target: p.date && tidyTitle(p.title) ? tidyTitle(p.title) : tg.target, kind: kind || tg.kind, on: p.date && tidyTitle(p.title) ? p.date : null,
+      all: Boolean(m[2]) || /\b(?:series|every|all)\b/i.test(tg.target) };
+    // "cancel my gym membership" is more likely a to-do than a delete, if nothing by that name exists.
+    if (/^cancel$/i.test(m[1]) && !m[4]) out.orTodo = tidyTitle(raw);
+    return out;
+  }
 
   // ---- questions ----
   const question = /^(?:what|what's|whats|how|how's|which|any|anything|do i|did i|have i|is there|are there|tell me|read|list|give me|brief me|show me|summari[sz]e)\b/.test(t) || /\?$/.test(input.trim());
@@ -309,6 +348,17 @@ function withItems(out, body, base, again, make) {
   if (splitItems(body).length > 1) out.items = items;
   else out.alt = items;
   return out;
+}
+
+// "the dentist appointment" → { target: 'Dentist', kind: 'event' }; "task report" → { target: 'Report', kind: 'task' }
+const KIND_WORDS = { event: 'event', meeting: 'event', appointment: 'event', call: 'event', 'to-do': 'todo', todo: 'todo', 'to do': 'todo',
+  reminder: 'todo', task: 'task', goal: 'goal', book: 'reading', movie: 'watch', show: 'watch', series: 'watch' };
+function target(text) {
+  let t = text.trim().replace(/\s+(?:series|occurrences?)$/i, '');
+  let kind = null;
+  t = t.replace(/^(?:(event|meeting|appointment|to-?do|reminder|task|goal|book|movie|show)\s+(?:called\s+|named\s+)?)(?=\S+)/i, (_, k) => { kind = KIND_WORDS[k.toLowerCase().replace('-', '')] || KIND_WORDS[k.toLowerCase()]; return ''; });
+  t = t.replace(/\s+(event|meeting|appointment|to-?do|reminder|task)$/i, (w, k) => { kind = kind || KIND_WORDS[k.toLowerCase().replace('-', '')] || KIND_WORDS[k.toLowerCase()]; return /meeting|call/i.test(k) ? w : ''; });
+  return { target: tidyTitle(t), kind };
 }
 
 function splitBy(text) {

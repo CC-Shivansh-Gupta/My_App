@@ -9,6 +9,7 @@ import { ROUTE_META, SIDEBAR, DEFAULT_TABS, bottomTabs } from '../routes.js';
 import * as voice from '../voice.js';
 import * as W from '../whisper.js';
 import * as install from '../install.js';
+import { KOKORO_VOICES } from '../jarvis/speech.js';
 
 const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync';
 
@@ -69,6 +70,7 @@ function voiceCard(ctx) {
     const cloud = cfg.key && W.PROVIDERS[prov].tts ? W.CLOUD_VOICES : [];
     reply.replaceChildren(
       h('option', { value: '' }, dev.length ? `Automatic — ${dev[0].name}` : 'Automatic'),
+      h('optgroup', { label: 'Open-weights Kokoro (on-device, free, ~90 MB once)' }, KOKORO_VOICES.map(([id, l]) => h('option', { value: `local:${id}`, selected: now === `local:${id}` }, l))),
       cloud.length ? h('optgroup', { label: 'OpenAI (natural, uses your key)' }, cloud.map((v) => h('option', { value: `cloud:${v}`, selected: now === `cloud:${v}` }, v.charAt(0).toUpperCase() + v.slice(1)))) : null,
       dev.length ? h('optgroup', { label: 'This device' }, dev.map((v) => h('option', { value: `device:${v.name}`, selected: now === `device:${v.name}` }, `${v.name} (${v.lang})`))) : null);
   };
@@ -85,12 +87,14 @@ function voiceCard(ctx) {
     cfg.key && !W.canRecord() ? h('p', { class: 'small error' }, 'This browser can’t record audio, so the built-in recognizer is used instead.') : null) : null;
 
   const apple = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  return section('Voice assistant', h('span', { class: ['badge', voice.supported() ? 'good' : ''] }, voice.supported() ? (W.listeningOn() ? 'Whisper' : 'Available') : 'Type or dictate'),
+  return section('Voice assistant', h('span', { class: ['badge', voice.supported() ? 'good' : ''] }, voice.supported() ? (W.localListening() ? 'On-device Whisper' : W.listeningOn() ? 'Whisper' : 'Available') : 'Type or dictate'),
+    h('p', { class: 'small' }, 'Its brain, memory, hands-free mode and on-device AI are on the ', h('a', { href: '#/jarvis' }, 'Jarvis page'), '.'),
     h('p', { class: 'small' }, 'Tap the mic button (or press V) and speak. Examples: “remind me to call the bank tomorrow”, “add task write the report and email John” (adds two), “spent 250 on lunch”, “schedule dentist Friday at 3 pm”, “I meditated”, “start push workout”, “set a goal to read 24 books this year”, “note: gate code 4512”, “what’s on tomorrow?”, “how much did I spend this month?”, “brief me”.'),
     voice.supported() ? null : h('p', { class: 'small muted' }, 'This browser has no built-in speech recognition. Turn on Whisper below, or type a command in the voice panel / tap the 🎤 on your keyboard to dictate it.'),
     h('div', { class: 'form' },
       field('Recognition language / accent', lang),
-      field('Listening', segmented([['browser', 'Built-in (free)'], ['whisper', 'Whisper (more accurate)']], whisper ? 'whisper' : 'browser', (v) => { W.setCfg({ engine: v }); ctx.rerender(); }, { small: true })),
+      field('Listening', segmented([['browser', 'Built-in (free)'], ['local', 'On-device Whisper (free)'], ['whisper', 'Cloud Whisper']], cfg.engine === 'local' ? 'local' : whisper ? 'whisper' : 'browser', (v) => { W.setCfg({ engine: v }); ctx.rerender(); }, { small: true }),
+        cfg.engine === 'local' ? 'An open-weights Whisper model runs in this browser: no key, nothing leaves the device, and it works in the iPad/iPhone home-screen app. It downloads (~80 MB) the first time you speak.' : null),
       whisperBox,
       field('Speak replies out loud', segmented([[true, 'On'], [false, 'Off']], store.pref('voiceReplies', true), (v) => store.setPref('voiceReplies', v))),
       field('Reply voice', reply, apple
