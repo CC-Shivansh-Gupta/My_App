@@ -40,7 +40,7 @@ const NOW = () => new Date(2026, 8, 26, 10, 0);
 
 test('the rules handle clear commands; the AI gets chat, advice and messy requests', () => {
   for (const s of ['buy milk', 'remind me to call mom tomorrow', 'spent 250 on lunch', 'what’s on tomorrow', 'schedule dentist friday at 3pm',
-    'add task write the report', 'add task plan the trip', 'I meditated', 'open calendar', 'call the bank', 'how much did I spend this month']) {
+    'add task write the report', 'add task plan the trip', 'reschedule standup to 10am', 'move the dentist to friday at 4', 'cancel standup tomorrow', 'add to my second brain: ideas compound', 'I meditated', 'open calendar', 'call the bank', 'how much did I spend this month']) {
     assert.equal(rulesConfident(s), true, s);
   }
   for (const s of ['I’m feeling really tired today', 'what is the capital of France?', 'plan my evening', 'should I go to the gym today?',

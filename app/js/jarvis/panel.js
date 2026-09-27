@@ -9,6 +9,7 @@ import { createJarvis } from './core.js';
 import * as llm from './llm.js';
 import * as ctx from './context.js';
 import * as wake from './wake.js';
+import * as vault from '../vault.js';
 
 export function name() {
   return store.pref('jarvisName', 'Jarvis') || 'Jarvis';
@@ -64,6 +65,7 @@ export function open({ go, text = null, listen = true, spoken = false } = {}) {
   setBrain();
   const offChange = llm.onChange(setBrain);
   llm.warm();
+  if (vault.connected()) vault.load(); // so the AI can use your vault's notes
 
   const scroll = () => requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
 
@@ -98,7 +100,7 @@ export function open({ go, text = null, listen = true, spoken = false } = {}) {
       } }, 'Wrong?'));
     }
     if (res.alt && !item.undone) {
-      actions.push(h('button', { class: 'btn ghost sm', onclick: () => { W.unlockAudio(); item.undone = true; const next = res.alt.run(); say(next, { spoken: false }); } }, res.alt.label));
+      actions.push(h('button', { class: 'btn ghost sm', onclick: async () => { W.unlockAudio(); item.undone = true; say(await res.alt.run(), { spoken: false }); } }, res.alt.label));
     }
     if (res.news) actions.push(h('button', { class: 'btn ghost sm', onclick: () => { closeSheet(); go?.('news'); } }, 'Open News'));
     const showCard = res.lines?.length || res.sub || (res.title && res.title !== res.say && !res.chat);

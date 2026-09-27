@@ -1,5 +1,5 @@
 // What Jarvis knows about your day when it asks an AI: a compact, plain-text snapshot of
-// your data (a few hundred tokens), plus notes and learnings that match what you said.
+// your data (a few hundred tokens), plus notes, learnings and vault pages that match what you said.
 // Small on purpose: fewer tokens is faster on-device and cheaper (or free-tier friendly) in the cloud.
 
 import * as store from '../store.js';
@@ -9,6 +9,7 @@ import * as X from '../gamify.js';
 import * as V from '../vices.js';
 import * as G from '../gym/model.js';
 import * as R from '../views/routine.js';
+import * as vault from '../vault.js';
 import { overlap } from './memory.js';
 
 const cut = (s, n = 60) => {
@@ -84,6 +85,7 @@ export function related(text, n = 3) {
   const pool = [
     ...store.all('notes').map((x) => ({ kind: 'Note', text: x.text })),
     ...store.all('learnings').map((x) => ({ kind: 'Learning', text: [x.text, x.details].filter(Boolean).join(' — ') })),
+    ...vault.all().filter((f) => vault.isNote(f.path) && !f.path.startsWith('raw/')).map((f) => ({ kind: `Vault page ${f.path.replace(/\.md$/, '')}`, text: f.text.replace(/^---[\s\S]*?---\s*/, '') })),
   ];
   return pool.map((x) => ({ ...x, s: overlap(text, x.text) }))
     .filter((x) => x.s >= 0.5)

@@ -28,6 +28,7 @@ export function rulesConfident(text, parsed = parseCommand(text)) {
   const t = text.trim().replace(/[’‘]/g, "'");
   if (parsed.type === 'empty') return true;
   const explicit = /^(?:add|remind|schedule|note|new task|task|set|log|spent|paid|mark|track|start|open|finished|til)\b/i.test(t);
+  if (['move', 'delete', 'rename', 'priority', 'knowledge'].includes(parsed.type)) return true;
   if (ADVICE.test(t) && !explicit && parsed.type !== 'navigate') return false;
   if (parsed.type === 'query') return true;
   // A question the rules couldn't place fell through to "add a to-do called <question>".
@@ -55,7 +56,9 @@ const COMMANDS = `- to-do: "remind me to <thing> <when>"
 - time: "track <activity>", "stop tracking", "I was <activity> from <time> to <time>"
 - screen time: "screen time <device> <duration>"
 - look up: "what's on <day>", "how much did I spend this month", "brief me", "what are my habits"
-- open a page: "open <today|calendar|tasks|habits|money|notes|reading|news|settings>"`;
+- change things: "move <item> to <day> [at <time>]", "postpone <item>", "delete <item>", "cancel <event> <day>", "rename <item> to <new name>", "make <task> high priority"
+- knowledge map / second brain: "add to my knowledge base: <idea, fact or note worth keeping>"
+- open a page: "open <today|calendar|tasks|habits|goals|gym|routine|money|notes|knowledge map|reading|news|settings>"`;
 
 export function systemPrompt({ name = 'Jarvis', user = '', date, time }) {
   return `You are ${name}, ${user ? `${user}'s` : 'the user\'s'} personal assistant inside Daybook, their life tracker app. `
@@ -147,15 +150,16 @@ export function createJarvis(deps) {
     while (history.length > 8) history.shift();
   }
 
-  function runCommand(cmd) {
+  async function runCommand(cmd) {
     const say = cmd.match(/^say\s+[:"“]?(.+?)["”]?$/i);
     if (say) return { say: say[1], title: say[1], spoken: true };
-    try { return deps.execute(cmd) || { say: 'Done.', title: 'Done' }; } catch (e) { return { say: 'That one failed.', title: `Couldn’t do “${cmd}”: ${e.message}`, miss: true }; }
+    try { return (await deps.execute(cmd)) || { say: 'Done.', title: 'Done' }; } catch (e) { return { say: 'That one failed.', title: `Couldn’t do “${cmd}”: ${e.message}`, miss: true }; }
   }
 
   // Runs several commands and folds their results into one.
-  function runAll(commands, { lead = '' } = {}) {
-    const results = commands.map(runCommand);
+  async function runAll(commands, { lead = '' } = {}) {
+    const results = [];
+    for (const c of commands) results.push(await runCommand(c));
     const undos = results.map((r) => r.undo).filter(Boolean);
     const one = results.length === 1 ? results[0] : null;
     const answers = results.filter((r) => r.answer || r.miss || r.spoken).map((r) => r.say);
@@ -266,7 +270,7 @@ export function createJarvis(deps) {
     if (skill) {
       mem.used(skill);
       count('skill');
-      const res = runAll(skill.commands);
+      const res = await runAll(skill.commands);
       res.skill = skill;
       return finish(res, text, 'skill');
     }
@@ -300,7 +304,7 @@ export function createJarvis(deps) {
 
     // The rules, when they clearly understood.
     if (confident) {
-      const res = runAll([t]);
+      const res = await runAll([t]);
       if (!res.miss || !(deps.llm?.engines?.() || []).length) {
         count('rules');
         return finish(learnFix(res, [t]), text, 'rules');
@@ -318,7 +322,7 @@ export function createJarvis(deps) {
       if (!confident) {
         count('rules');
         if (unanswerable) return finish(noBrain(`it’s unavailable right now (${e.message})`), text, 'rules');
-        const res = runAll([t]);
+        const res = await runAll([t]);
         res.sub = [res.sub, `AI unavailable (${e.message}), so I used the basic rules.`].filter(Boolean).join(' · ');
         return finish(res, text, 'rules');
       }
@@ -326,12 +330,12 @@ export function createJarvis(deps) {
     if (!reply) {
       count('rules');
       if (unanswerable) return finish(noBrain(), text, 'rules');
-      return finish(learnFix(runAll([t]), [t]), text, 'rules');
+      return finish(learnFix(await runAll([t]), [t]), text, 'rules');
     }
     for (const f of reply.remember) mem.remember(f, { source: 'ai' });
     let res;
     if (reply.do.length) {
-      res = runAll(reply.do, { lead: reply.say });
+      res = await runAll(reply.do, { lead: reply.say });
       if (!res.miss && !fixing && safeToLearn(t, reply.do)) res.learned = mem.teach(t, reply.do, { source: 'learned', name: name() });
       learnFix(res, reply.do);
     } else {
