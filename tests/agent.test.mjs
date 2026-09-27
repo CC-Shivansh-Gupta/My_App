@@ -7,6 +7,10 @@ import * as M from '../app/js/models.js';
 import { generateVapidKeys, vapidAuth, encrypt } from '../agent/webpush.mjs';
 import { run, plan } from '../agent/run.mjs';
 import { aiClient, findTasks, parseJson } from '../agent/ai.mjs';
+import { EventEmitter } from 'node:events';
+import { claudeClient, toPrompt, readOutput } from '../agent/claude.mjs';
+import { answerAsks } from '../agent/run.mjs';
+import * as asks from '../app/js/jarvis/asks.js';
 
 const DAY = '2026-09-26'; // a Saturday, 4 days before the month ends
 
@@ -333,4 +337,49 @@ test('run with AI: settings off means nothing is sent; failures never block the 
 
   const none = await aiRun(null);
   assert.equal(none.r.jobs[0].ai, 'no key');
+});
+
+// ---- Claude Code on your plan ---------------------------------------------------------------------------------
+
+function fakeSpawn(stdout, calls = []) {
+  return (cmd, args, opts) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    let input = '';
+    child.stdin = { end: (s) => { input = s; calls.push({ cmd, args, opts, input }); setImmediate(() => { child.stdout.emit('data', stdout); child.emit('close', 0); }); } };
+    child.kill = () => {};
+    return child;
+  };
+}
+
+test('Claude Code client: runs `claude -p` with the plan token, no tools, and reads the result', async () => {
+  const calls = [];
+  const c = claudeClient({ token: 'sk-ant-oat-test', spawnImpl: fakeSpawn(JSON.stringify({ type: 'result', subtype: 'success', result: '{"say":"Hi","do":[]}' }), calls) });
+  const out = await c.chat([{ role: 'system', content: 'You are Claude.' }, { role: 'user', content: 'plan my week' }]);
+  assert.equal(out, '{"say":"Hi","do":[]}');
+  assert.equal(calls[0].cmd, 'npx');
+  assert.ok(calls[0].args.includes('@anthropic-ai/claude-code') && calls[0].args.includes('-p'));
+  assert.ok(calls[0].args.includes('--disallowedTools'));
+  assert.equal(calls[0].opts.env.CLAUDE_CODE_OAUTH_TOKEN, 'sk-ant-oat-test');
+  assert.match(calls[0].input, /^You are Claude\.\n\nplan my week/);
+  assert.throws(() => readOutput(JSON.stringify({ is_error: true, result: 'Invalid API key' })), /Invalid API key/);
+  assert.match(toPrompt([{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }, { role: 'user', content: 'c' }]), /User: a\n\nAssistant: b\n\nUser: c/);
+});
+
+test('queued “ask Claude” requests get answered; failures stay queued', async () => {
+  store.reset();
+  const a = asks.add('sort my tasks into headings');
+  asks.add('plan my week');
+  let n = 0;
+  const ai = { model: () => 'Claude', chat: async (msgs) => {
+    assert.match(msgs[0].content, /You are Claude/);
+    if (n++ === 1) throw new Error('usage limit');
+    return '{"say":"Grouped them.","do":["add task plan trip under Travel heading"]}';
+  } };
+  const r = await answerAsks(ai, { date: '2026-09-26', now: Date.now() });
+  assert.deepEqual(r, { answered: 1, errors: 1, waiting: 1 });
+  const done = store.get('jarvisAsks', a.id);
+  assert.equal(done.status, 'answered');
+  assert.deepEqual(done.do, ['add task plan trip under Travel heading']);
+  assert.equal(asks.pending()[0].error, 'usage limit');
 });

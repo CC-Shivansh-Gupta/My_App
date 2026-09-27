@@ -530,11 +530,11 @@ function vaultCard() {
   const name = h('input', { value: cfg.vaultName, 'data-key': 'map-vault-name' });
   name.addEventListener('change', () => { vault.setVaultName(name.value); toast('Saved'); });
   return section('Vault', h('span', { class: 'badge good' }, 'Connected'),
-    h('p', { class: 'small' }, h('a', { href: `https://github.com/${cfg.repo}`, target: '_blank', rel: 'noopener' }, cfg.repo), ` · branch ${cfg.branch}. The token stays on this device.`),
+    h('p', { class: 'small' }, h('a', { href: `https://github.com/${cfg.repo}`, target: '_blank', rel: 'noopener' }, cfg.repo), ` · branch ${cfg.branch}. Your other devices get this connection through sync.`),
     h('p', { class: 'small muted' }, 'Copy your learnings, reading list, watch list, goals and notes into raw/daybook/, so assistants can ingest them and every chatbot can see them.'),
     field('Vault name in Obsidian (for “Open in Obsidian”)', name),
     h('div', { class: 'btn-row' }, exportBtn,
-      h('button', { class: 'btn ghost sm', onclick: async () => { await vault.disconnect(); pos.clear(); cam.fitted = 0; toast('Vault disconnected on this device'); } }, 'Disconnect')));
+      h('button', { class: 'btn ghost sm', onclick: async () => { await vault.disconnect(); pos.clear(); cam.fitted = 0; toast('Vault disconnected'); } }, 'Disconnect')));
 }
 
 function connectCard() {
@@ -555,7 +555,7 @@ function connectCard() {
     h('p', { class: 'small' }, 'Shows your Obsidian second brain here, on every device. Daybook reads it from its private GitHub repo, the one the FIT plugin syncs.'),
     h('ol', { class: 'small steps' },
       h('li', null, h('a', { href: TOKEN_URL, target: '_blank', rel: 'noopener' }, 'Create a fine-grained token'), ': only the second-brain repo, Contents: Read and write. The FIT sync token works too.'),
-      h('li', null, 'Paste it below. It stays on this device and isn’t synced.')),
+      h('li', null, 'Paste it below. It travels to your other devices with sync, encrypted, so you only do this once.')),
     field('Repo', repo), field('Token', token), field('Vault name in Obsidian', name, 'Used for “Open in Obsidian” links.'),
     h('div', { class: 'btn-row' }, btn));
 }

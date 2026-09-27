@@ -3,6 +3,9 @@
 //
 //   "remind me to call the bank tomorrow"      → todo
 //   "add task finish the report by friday"     → task
+//   "add buy shoes to my general tasks"        → task
+//   "move buy shoes to tasks" / "move report to today" → convert (to-do ⇄ task)
+//   "add a habit to meditate every morning"    → habit;  "I want to quit smoking" → vice
 //   "schedule dentist tomorrow at 3 p.m."      → event
 //   "spent 250 on lunch"                       → expense
 //   "note: ideas for the trip ..."             → note
@@ -72,6 +75,44 @@ export function tidyTitle(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
+// Where things go. "my general tasks", "the work tasks", "backlog" → the task list; "today's list",
+// "my to-dos", "tomorrow's list" → a day's to-dos (the day word is captured).
+const TASKS_PLACE = String.raw`(?:(?:my|the|our)\s+)?(?:([a-z][a-z-]*)\s+)??(?:tasks?(?:\s+list)?|task\s+list|backlog|someday(?:\s+list)?|general(?:\s+list)?)`;
+const GENERIC_TASKS = /^(?:general|main|big|overall|master|long-term|other|open|all|pending|regular|normal|to-?do|todo)$/i;
+const TODAY_LIST = String.raw`(?:my\s+|the\s+)?(?:(today|tomorrow)(?:'s)?\s+(?:list|to-?dos?|to do(?:s| list)?|plan)|to-?dos?(?:\s+list)?|to do(?:s| list)|to-?do\s+list|(?:list|to-?dos?)\s+for\s+(today|tomorrow))`;
+const TODAY_FROM = String.raw`(?:my\s+|the\s+)?(?:today(?:'s)?(?:\s+(?:list|to-?dos?|to do(?:s| list)?|plan))?|to-?dos?(?:\s+list)?|to do(?:s| list)|to-?do\s+list)`;
+
+// "everything left today", "all my to-dos" → every unfinished to-do; otherwise one item by name.
+function convertTarget(text) {
+  const t = text.trim();
+  if (/^(?:all|everything|the rest|what'?s left|whatever'?s left|everything (?:left|else|remaining)|all (?:of\s+)?(?:my\s+|the\s+|today'?s\s+)?(?:unfinished\s+|remaining\s+|pending\s+|open\s+|undone\s+)?(?:to-?dos?|to dos|items|things|tasks))(?:\s+(?:left|for today|from today|today|remaining))?$/i.test(t)) return { target: '', all: true };
+  return { target: tidyTitle(t.replace(/^(?:to-?do|task)\s+/i, '')), all: false };
+}
+
+// "meditate every morning" / "gym on mon, wed and fri" / "read on weekdays" → name + days (0 = Sunday).
+const DAY_RE = String.raw`(?:sun|mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?)(?:day)?s?\b`;
+const DAY_NUM = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+export function habitDays(text) {
+  let days = null;
+  const body = ` ${text} `
+    .replace(/\s*,?\s+\b(?:every\s*day|everyday|daily|each day|all week|every single day)\b/i, () => { days = days || [0, 1, 2, 3, 4, 5, 6]; return ' '; })
+    .replace(/\s*,?\s+(?:on\s+|every\s+)?week\s?days\b/i, () => { days = [1, 2, 3, 4, 5]; return ' '; })
+    .replace(/\s*,?\s+(?:on\s+|every\s+|at\s+|on\s+the\s+)?week\s?ends?\b/i, () => { days = [0, 6]; return ' '; })
+    .replace(new RegExp(String.raw`\s*,?\s+(?:on|every)\s+(${DAY_RE}(?:(?:\s*,\s*|\s+and\s+|\s+|\s*,\s*and\s+)${DAY_RE})*)`, 'i'), (_, list) => {
+      days = [...new Set((list.toLowerCase().match(new RegExp(DAY_RE, 'g')) || []).map((d) => DAY_NUM[d.slice(0, 3)]))].sort();
+      return ' ';
+    });
+  return { name: tidyTitle(body.replace(/^\s*(?:to|of)\s+/i, ' ')), days: days || [0, 1, 2, 3, 4, 5, 6] };
+}
+
+// A to-do said without a day or an explicit "remind me" / "to-do" — it could just as well be a task.
+export function isSoftTodo(text) {
+  const t = clean(text).replace(FILLER_START, '');
+  return !/^(?:remind|remember to|don'?t forget|dont forget|add (?:a )?to-?do|to-?do)\b/i.test(t)
+    && !/\b(?:to-?dos?|to do list|today|tonight|this (?:morning|afternoon|evening)|list)\b/i.test(t)
+    && !parseSmart(t, todayStr()).date;
+}
+
 const ROUTE_WORDS = { today: 'today', home: 'today', calendar: 'calendar', schedule: 'calendar', agenda: 'calendar', task: 'tasks',
   tasks: 'tasks', habit: 'habits', habits: 'habits', money: 'money', expense: 'money', expenses: 'money', spending: 'money',
   budget: 'money', reading: 'reading', 'reading list': 'reading', books: 'reading', news: 'news', note: 'notes', notes: 'notes', settings: 'settings',
@@ -106,6 +147,27 @@ export function parseCommand(input, base = todayStr()) {
     || raw.match(/^(?:brain ?dump|for my (?:second brain|vault|knowledge base))\b[\s:,-]*(.+)$/i)
     || raw.match(/^(?:add|save|put|send|capture|write)\s+(.+?)\s+(?:to|in|into|on)\s+(?:my\s+|the\s+)?(?:knowledge (?:base|map)|second brain|vault|obsidian)$/i);
   if (m) return { type: 'knowledge', text: m[1].trim().charAt(0).toUpperCase() + m[1].trim().slice(1) };
+
+  // ---- moving between today's to-dos and the general task list ----
+  m = raw.match(new RegExp(`^(?:move|shift|transfer|put|send|push|change|convert|turn|make)\\s+(?:the\\s+|my\\s+)?(.+?)\\s+(?:from\\s+${TODAY_FROM}\\s+)?(?:to|into|in|as|onto|over to|in to)\\s+(?:an?\\s+)?${TASKS_PLACE}(?:\\s+(?:under|in)\\s+(?:the\\s+|my\\s+)?(.+?)(?:\\s+(?:heading|section|group))?)?$`, 'i'));
+  if (!m) { const x = raw.match(/^(?:make|turn)\s+(?:the\s+|my\s+)?(.+?)\s+(?:into\s+)?an?\s+task$/i); if (x) m = [x[0], x[1], '', '']; }
+  if (m) {
+    const out = { type: 'convert', to: 'task', ...convertTarget(m[1]) };
+    const word = (m[2] || '').toLowerCase();
+    if (m[3]) out.heading = m[3].trim();
+    else if (word && !GENERIC_TASKS.test(word)) out.headingHint = word;
+    return out;
+  }
+  m = raw.match(new RegExp(`^(?:move|shift|transfer|put|bring|pull|send)\\s+(?:the\\s+|my\\s+)?(?:task\\s+)?(.+?)\\s+(?:from\\s+(?:my\\s+|the\\s+)?tasks?(?:\\s+list)?\\s+)?(?:to|onto|on|into|in)\\s+${TODAY_LIST}$`, 'i'));
+  if (m) {
+    const day = m[2] || m[3];
+    const when = day ? parseSmart(` ${day} `, base).date : null;
+    return { type: 'convert', to: 'todo', ...convertTarget(m[1]), date: when || base };
+  }
+
+  // ---- looking something up by name ----
+  m = raw.match(/^(?:find|search(?:\s+for)?|look\s*up|lookup)\s+(?:my\s+|the\s+)?(.+?)\??$/i);
+  if (m) return { type: 'query', what: 'find', text: m[1].trim() };
 
   // ---- changing what's already there ----
   m = raw.match(/^rename\s+(?:the\s+|my\s+)?(.+?)\s+(?:to|as)\s+(.+)$/i);
@@ -163,6 +225,24 @@ export function parseCommand(input, base = todayStr()) {
       return { type: 'query', what: 'agenda', date: parseSmart(raw, base).date || base };
     }
   }
+
+  // ---- habits: to build and to break ----
+  m = raw.match(/^(?:(?:add|create|start|new|make|set up|build|track)\s+)?(?:a\s+|an\s+|the\s+|my\s+)?(?:new\s+)?(?:daily\s+|weekly\s+)?(bad habit|habit to (?:break|quit|stop|kick)|vice|habit)\b\s*(?:called|named|of|to|for|:|-)?\s*(.+)$/i)
+    || raw.match(/^(?:i\s+)?(?:want|would like|'d like|need|am going|'m going|plan|am trying|'m trying)\s+to\s+(?:build|start|form|develop|make|pick up|get into|create)\s+(?:a|the)\s+(?:new\s+|daily\s+)?(habit)\s+(?:of\s+|to\s+)?(.+)$/i);
+  const asHabit = raw.match(/^(?:make|turn|track|add)\s+(.+?)\s+(?:into\s+|as\s+)?(?:a|an|my)\s+(?:daily\s+|new\s+)?habit$/i);
+  if (asHabit) m = [asHabit[0], 'habit', asHabit[1]];
+  if (m && m[2] && m[2].trim()) {
+    if (/^habit$/i.test(m[1])) return { type: 'habit', ...habitDays(m[2]) };
+    return { type: 'vice', name: tidyTitle(m[2].replace(/\s+habit$/i, '')) };
+  }
+  // "I want to quit smoking", "help me stop doomscrolling", "cut down on sugar"
+  m = raw.match(/^(?:i\s+)?(?:(?:want|would like|'d like|need|am going|'m going|am trying|'m trying|have|gotta|really need|should)\s+to\s+|help me\s+)?(quit|give up|kick|cut down on|cut back on|stop)\s+(?:the habit of\s+|my\s+)?(.+?)(?:\s+habit)?$/i);
+  if (m && (m[1].toLowerCase() !== 'stop' || /^\w+ing\b/i.test(m[2]))
+    && !/^(?:my\s+)?(?:job|work|tracking|timer|tracker|the timer|listening|talking|it|this|that)\b/i.test(m[2])) {
+    return { type: 'vice', name: tidyTitle(m[2]) };
+  }
+  m = raw.match(/^(?:i\s+(?:want|need)\s+to\s+)?(?:break|kick)\s+(?:the\s+|my\s+)(?:habit of\s+)?(.+?)(?:\s+habit)?$/i);
+  if (m) return { type: 'vice', name: tidyTitle(m[1]) };
 
   // ---- learnings ----
   m = raw.match(/^(?:til|today i learned|today i learnt|i learned|i learnt|i just learned|i've learned|i have learned|learned|lesson learned|life lesson|lesson|new learning|learning)\b[\s:,-]*(?:that\s+)?(.+)$/i);
@@ -282,12 +362,16 @@ export function parseCommand(input, base = todayStr()) {
   }
 
   // ---- tasks ----
-  const taskLead = /^(?:add (?:a |an |new )?task|new task|create (?:a )?task|task|add(?=.*\s(?:to|in|on)\s+(?:my\s+|the\s+)?tasks?(?: list)?$)|add(?=.*\s(?:under|in|to|into)\s+(?:the\s+|my\s+)?\S.*\s(?:heading|section|group)$))\b[\s:,-]*/i;
-  const toTasks = /\s+(?:to|in|on)\s+(?:my\s+|the\s+)?tasks?(?: list)?$/i;
-  if (taskLead.test(raw) || toTasks.test(raw)) {
+  const taskLead = /^(?:add (?:a |an |new )?task|new task|create (?:a )?task|task|add(?=.*\s(?:under|in|to|into)\s+(?:the\s+|my\s+)?\S.*\s(?:heading|section|group)$))\b[\s:,-]*/i;
+  const toTasks = new RegExp(`\\s+(?:to|in|on|into|onto|under)\\s+${TASKS_PLACE}$`, 'i');
+  const toTasksLead = /^(?:add|put|save|throw|stick|drop)\b[\s:,-]*/i;
+  const place = raw.match(toTasks);
+  if (taskLead.test(raw) || place) {
     let body = raw.replace(taskLead, ' ').replace(toTasks, '');
+    if (place) body = body.replace(toTasksLead, ' ');
     let priority = 0;
     let heading = null;
+    const hint = place && place[1] && !GENERIC_TASKS.test(place[1]) ? place[1] : null;
     body = body.replace(/\s+(?:under|in|to|into)\s+(?:the\s+|my\s+)?(.+?)\s+(?:heading|section|group|list)$/i, (_, n) => { heading = n.trim(); return ''; });
     body = body.replace(/(?:,?\s*\b(?:it'?s|it is)\s+)?\b(?:(?:high|top) priority|urgent|important|asap)\b/i, () => { priority = 3; return ' '; })
       .replace(/\b(?:medium|normal) priority\b/i, () => { priority = 2; return ' '; })
@@ -296,6 +380,7 @@ export function parseCommand(input, base = todayStr()) {
     const taskTitle = (x) => tidyTitle(x.replace(/\s+(?:by|due)\s*$/i, ''));
     const out = { type: 'task', title: taskTitle(p.title), due: p.date, priority: p.priority || priority, tag: p.tag };
     if (heading) out.heading = heading;
+    else if (hint) out.headingHint = hint;
     return withItems(out, body, base, TASK_AGAIN, (x) => ({ title: taskTitle(x.title), due: x.date || p.date, priority: x.priority || out.priority, tag: x.tag || out.tag }));
   }
 

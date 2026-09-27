@@ -6,7 +6,7 @@
 import * as store from './store.js';
 import * as D from './dates.js';
 import * as M from './models.js';
-import { parseCommand, bestMatch, similarity } from './intents.js';
+import { parseCommand, bestMatch, similarity, isSoftTodo } from './intents.js';
 import * as vault from './vault.js';
 import { h, icon, toast, money } from './ui.js';
 import { topNews } from './views/news.js';
@@ -285,15 +285,43 @@ export function execute(text) {
     case 'todo': {
       if (!it.title) return { say: 'What should I add?', title: 'What should I add?', miss: true };
       const one = [{ title: it.title, date: it.date }];
-      return addTodos(it.items || one, it.items ? one : it.alt, t);
+      const items = it.items || one;
+      // Settings → Voice: things said without a day can go to Tasks instead of today's list.
+      if (store.pref('undatedGoesTo', 'todo') === 'task' && isSoftTodo(text)) {
+        const res = addTasks(items.map((x) => ({ title: x.title })), it.items ? null : it.alt?.map((x) => ({ title: x.title })), null);
+        return res.alt ? res : withSwap(res, 'Today’s to-do instead', () => addTodos(items, null, t));
+      }
+      const res = addTodos(items, it.items ? one : it.alt, t);
+      return res.alt ? res : withSwap(res, 'Move to Tasks', () => addTasks(items.map((x) => ({ title: x.title, due: x.date > t ? x.date : null })), null, null));
     }
 
     case 'task': {
       if (!it.title) return { say: 'What’s the task?', title: 'What’s the task?', miss: true };
-      let heading = null;
-      if (it.heading) heading = bestMatch(it.heading, M.taskHeadings(), (g) => g.name, 0.5) || M.addHeading(tidy(it.heading));
+      const heading = findHeading(it.heading, it.headingHint);
       const one = [{ title: it.title, due: it.due, priority: it.priority, tag: it.tag }];
       return addTasks(it.items || one, it.items ? one : it.alt, heading);
+    }
+
+    case 'convert': return it.to === 'task' ? toTasks(it, t) : toToday(it, t);
+
+    case 'habit': {
+      if (!it.name) return { say: 'Which habit?', title: 'Which habit?', miss: true };
+      const same = bestMatch(it.name, M.habits(), (x) => x.name, 0.8);
+      if (same) return { say: `You already track ${same.name}.`, title: `${same.emoji || '✅'} ${same.name}`, sub: 'Already a habit', go: null };
+      const r = M.addHabit({ name: it.name, days: it.days });
+      const when = daysSay(r.days);
+      return { say: `New habit: ${r.name}, ${when}. Tick it off by saying “I did ${r.name.toLowerCase()}”.`, title: `${r.emoji} New habit: ${r.name}`, sub: when,
+        undo: () => store.remove('habits', r.id), col: 'habits', rec: r };
+    }
+
+    case 'vice': {
+      if (!it.name) return { say: 'Which habit do you want to break?', title: 'Which habit?', miss: true };
+      const same = bestMatch(it.name, V.vices(), (x) => x.name, 0.6);
+      if (same) return { say: `You’re already breaking ${same.name} — ${V.cleanStreak(same)} days clean.`, title: `${same.emoji || '🚫'} ${same.name}`, sub: 'Already tracked' };
+      const known = bestMatch(it.name, V.SUGGESTIONS, (x) => x[1], 0.5);
+      const r = store.put('vices', { name: it.name, emoji: known?.[0] || '🚫', penalty: known?.[2] || 10, attr: known?.[3] || 'dis' });
+      return { say: `Okay, we’re breaking ${r.name}. Say “I slipped on ${r.name.toLowerCase()}” if it happens — every clean day earns XP.`, title: `${r.emoji} Habit to break: ${r.name}`,
+        sub: `−${r.penalty} XP per slip`, undo: () => store.remove('vices', r.id) };
     }
 
     case 'event': {
@@ -590,6 +618,79 @@ async function toKnowledge(text) {
   return { say: 'Saved to your knowledge map as a note. Connect your Obsidian vault on the Knowledge map page to send it there instead.', title: '🧠 On your knowledge map', sub: text, undo: () => store.remove('notes', r.id) };
 }
 
+// ---- To-dos ⇄ tasks ----------------------------------------------------------------------------------
+// "under the Work heading" makes the heading if it's new; "my work tasks" only uses one that exists.
+function findHeading(named, hint) {
+  if (named) return bestMatch(named, M.taskHeadings(), (g) => g.name, 0.5) || M.addHeading(tidy(named));
+  return hint ? bestMatch(hint, M.taskHeadings(), (g) => g.name, 0.5) : null;
+}
+
+function toTasks(it, t) {
+  const heading = findHeading(it.heading, it.headingHint);
+  const under = heading ? ` under ${heading.name}` : '';
+  let todos;
+  if (it.all) todos = store.all('todos').filter((x) => !x.done && x.date <= t);
+  else {
+    const hit = findItem(it.target, ['todo'], t);
+    todos = hit ? [hit.rec] : [];
+    if (!hit) {
+      const task = findItem(it.target, ['task'], t);
+      if (task && task.s >= 0.8) {
+        if (!heading || task.rec.heading === heading.id) return { say: `${task.rec.title} is already in your tasks.`, title: `◻︎ ${task.rec.title}`, sub: 'Already a task' };
+        store.put('tasks', { ...task.rec, heading: heading.id });
+        return { say: `Moved ${task.rec.title}${under}.`, title: `◻︎ ${task.rec.title}`, sub: `→ ${heading.name}`, undo: snapshotUndo('tasks', task.rec, ['heading']) };
+      }
+      // Not on any list yet: add it as a task.
+      return addTasks([{ title: it.target }], null, heading);
+    }
+  }
+  if (!todos.length) return { say: 'There’s nothing left on today’s list to move.', title: 'Nothing to move' };
+  const made = todos.map((x) => {
+    store.remove('todos', x.id);
+    return M.addTask({ title: x.title, date: x.date > t ? x.date : null, heading: heading?.id });
+  });
+  return {
+    say: made.length === 1 ? `Moved “${made[0].title}” off today’s list into your tasks${under}.` : `Moved ${made.length} to-dos into your tasks${under}: ${listSay(made.map((r) => r.title), 5)}.`,
+    title: made.length === 1 ? `◻︎ ${made[0].title}` : `${made.length} to-dos → Tasks`, sub: `To-do → task${under}`,
+    lines: made.length > 1 ? made.map((r) => `◻︎ ${r.title}`) : null,
+    undo: () => { made.forEach((r) => store.remove('tasks', r.id)); todos.forEach((x) => store.put('todos', x)); },
+  };
+}
+
+// A task onto a day's list: it's planned for that day (it shows on Today) and keeps its notes and heading.
+function toToday(it, t) {
+  const date = it.date || t;
+  const day = date === t ? 'today' : whenSay(date, null, t);
+  if (it.all) {
+    const todos = store.all('todos').filter((x) => !x.done && x.date < date);
+    if (!todos.length) return { say: 'No unfinished to-dos to move.', title: 'Nothing to move' };
+    todos.forEach((x) => store.put('todos', { ...x, date }));
+    return { say: `Moved ${todos.length} unfinished to-dos to ${day}.`, title: `${todos.length} to-dos → ${D.fmtDate(date)}`, undo: () => todos.forEach((x) => store.put('todos', x)) };
+  }
+  const hit = findItem(it.target, ['task', 'todo'], t);
+  if (!hit) { const r = M.addTodo(it.target, date); return { say: `Added “${r.title}” to your to-dos for ${day}.`, title: `To-do: ${r.title}`, sub: D.fmtDate(date), undo: () => store.remove('todos', r.id) }; }
+  if (hit.kind === 'todo') {
+    store.put('todos', { ...hit.rec, date });
+    return { say: `“${hit.rec.title}” is on ${day}’s list.`, title: `☐ ${hit.rec.title}`, sub: `→ ${D.fmtDate(date)}`, undo: snapshotUndo('todos', hit.rec, ['date']) };
+  }
+  store.put('tasks', { ...hit.rec, planned: date });
+  return { say: `Put the task “${hit.rec.title}” on ${day}’s plan. It stays in your tasks too.`, title: `◻︎ ${hit.rec.title}`, sub: `Planned for ${D.fmtDate(date)}`, undo: snapshotUndo('tasks', hit.rec, ['planned']) };
+}
+
+function daysSay(days) {
+  const k = [...days].sort().join('');
+  if (k === '0123456') return 'every day';
+  if (k === '12345') return 'on weekdays';
+  if (k === '06') return 'on weekends';
+  return `on ${days.map((d) => D.DAY_NAMES[d]).join(', ')}`;
+}
+
+// Offer the other list ("Move to Tasks" / "Today’s to-do instead") as a one-tap swap.
+function withSwap(res, label, redo) {
+  res.alt = { label, run: () => { res.undo(); return redo(); } };
+  return res;
+}
+
 // "Keep as one" / "Split into 3": undo what was just added and add the other reading instead.
 function withAlt(res, other, redo) {
   if (!other) return res;
@@ -622,6 +723,7 @@ function addTasks(items, other, heading) {
 }
 
 function answer(q, t) {
+  if (q.what === 'find') return findAnswer(q.text, t);
   if (q.what === 'agenda' || q.what === 'brief') {
     const d = q.date || t;
     const dayWord = d === t ? 'today' : d === D.addDays(t, 1) ? 'tomorrow' : `on ${D.fmtDate(d, { relative: false })}`;
@@ -717,6 +819,22 @@ function answer(q, t) {
     return { say: `Here are the top ${items.length}: ${items.map((i, n) => `${n + 1}. ${i.title}`).join('. ')}.`, title: 'Top picks for you', lines: items.map((i) => `• ${i.title}`), go: null, news: true };
   }
   return { say: 'Sorry, I can’t answer that yet.', title: 'Sorry, I can’t answer that yet.', miss: true };
+}
+
+// "find report": what matches, across lists, so you (or the AI) can act on the right one.
+function findAnswer(text, t) {
+  const hits = [];
+  const add = (label, title, extra = '') => { const s = similarity(text, title) || (title.toLowerCase().includes(text.toLowerCase()) ? 0.6 : 0); if (s >= 0.34) hits.push({ s, line: `${label}: ${title}${extra}` }); };
+  for (const x of store.all('todos').filter((y) => !y.done)) add('To-do', x.title, ` · ${x.date === t ? 'today' : D.fmtDate(x.date)}`);
+  const heads = Object.fromEntries(M.taskHeadings().map((g) => [g.id, g.name]));
+  for (const x of M.openTasks()) add('Task', x.title, [x.due ? ` · due ${D.fmtDate(x.due)}` : '', x.heading && heads[x.heading] ? ` · ${heads[x.heading]}` : '', x.planned === t ? ' · planned today' : ''].join(''));
+  for (const x of M.habits()) add('Habit', x.name, ` · ${daysSay(x.days && x.days.length ? x.days : [0, 1, 2, 3, 4, 5, 6])}`);
+  for (const x of V.vices()) add('Habit to break', x.name);
+  for (const x of store.all('events').filter((e) => (e.repeat && e.repeat !== 'none') || e.date >= t)) { const n = nextOccurrence(x, t); if (n) add('Event', x.title, ` · ${whenSay(n, x.time, t)}`); }
+  for (const x of store.all('goals').filter((g) => g.status === 'active')) add('Goal', x.title);
+  const lines = hits.sort((a, b) => b.s - a.s).slice(0, 8).map((h) => h.line);
+  if (!lines.length) return { say: `I couldn’t find anything called ${text}.`, title: `Nothing matches “${text}”`, miss: true };
+  return { say: lines.length === 1 ? `Found it. ${lines[0]}.` : `I found ${lines.length}: ${listSay(lines, 4)}.`, title: `Matches for “${text}”`, lines, go: null };
 }
 
 function range(p, t) {

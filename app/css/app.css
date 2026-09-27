@@ -976,3 +976,5 @@ details.jv-box > :not(summary) { margin-top: 8px; }
 .jv-bar-meter { width: 90px; height: 6px; border-radius: 6px; background: var(--accent-wash); overflow: hidden; flex: none; }
 .jv-bar-meter i { display: block; height: 100%; background: var(--accent); }
 .steps code { overflow-wrap: anywhere; }
+.jv-ask { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.jv-ask .btn-row { margin-top: 2px; }

@@ -4,7 +4,8 @@
 //   ollama — any open-weights model served by Ollama on your laptop (http://localhost:11434).
 //   cloud  — any OpenAI-compatible API. The default is Groq's free tier, which serves open-weights
 //            models (Llama, Qwen, gpt-oss) fast; a daily cap keeps you inside the free limits.
-// Settings live on this device only (localStorage) — keys are never synced.
+// Settings live in localStorage. The cloud provider, key and cap travel with sync, encrypted
+// (keys.js), so you set them once; engine and on-device model choices stay per device.
 
 import * as mem from './memory.js';
 import * as D from '../dates.js';

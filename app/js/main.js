@@ -29,6 +29,7 @@ import * as agent from './views/agent.js';
 import * as jarvisView from './views/jarvis.js';
 import * as jarvis from './jarvis/panel.js';
 import * as llm from './jarvis/llm.js';
+import * as asks from './jarvis/asks.js';
 import * as social from './social.js';
 import * as voice from './voice.js';
 import * as G from './gym/model.js';
@@ -197,8 +198,15 @@ function boot() {
     onclick: openVoice }, icon('mic', 24));
   document.body.append(h('div', { class: 'shell' }, sidebar, main), bottom, workoutPill, micFab, fab);
 
+  let claudeReady = asks.answered().length;
   store.subscribe((source) => {
     if (source !== 'silent') scheduleRender();
+    if (source === 'remote') {
+      // Claude answered something you asked (via the agent): point to it, don't act on it.
+      const n = asks.answered().length;
+      if (n > claudeReady) toast(`✳️ Claude answered ${n === 1 ? 'your request' : `${n} requests`}`, { label: 'Review', run: () => { location.hash = '#/jarvis'; } });
+      claudeReady = n;
+    } else claudeReady = asks.answered().length;
     if (source === 'local') xpCheck();
     if (source !== 'silent') schedulePublish();
   });
@@ -248,7 +256,11 @@ function boot() {
   gym.startTicker();
   jarvis.startWake(go);
   let wakeOn = llm.cfg().wake;
-  llm.onChange(() => { if (llm.cfg().wake !== wakeOn) { wakeOn = llm.cfg().wake; jarvis.startWake(go); } });
+  let keySync = 0;
+  llm.onChange(() => {
+    if (llm.cfg().wake !== wakeOn) { wakeOn = llm.cfg().wake; jarvis.startWake(go); }
+    clearTimeout(keySync); keySync = setTimeout(() => sync.syncNow(), 3000); // a new key reaches your other devices soon
+  });
   sync.start();
   news.load();
 

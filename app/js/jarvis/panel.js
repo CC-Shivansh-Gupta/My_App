@@ -35,13 +35,20 @@ export function brain() {
 // What the panel shows, kept while the app is open so reopening continues the conversation.
 const log = [];
 
+// Run an answer Claude sent back (you tapped “Do it”); it joins the conversation, with Undo.
+export async function applyAnswer(a) {
+  const res = await brain().applyAnswer(a);
+  log.push({ who: 'you', text: `✳️ ${a.text}` }, { who: 'jarvis', res });
+  return res;
+}
+
 const EXAMPLES = ['What’s my day look like?', 'Remind me to call the bank tomorrow and pay rent on Friday', 'Spent 250 on lunch',
   'I’m feeling lazy, what should I do first?', 'Remember that my gym closes at 10 pm', 'When I say good night, stop tracking and brief me for tomorrow',
   'I was in meetings from 2 to 4', 'How much did I spend on food this month?', 'Plan my evening', 'Add Dune to my watch list'];
 
 export const VIA = {
   rules: ['⚡', 'Rules · free'], skill: ['🧩', 'Learned phrase · free'], memory: ['🧠', 'Memory · free'],
-  local: ['💻', 'On-device AI · free'], ollama: ['🦙', 'Ollama · free'], cloud: ['☁️', 'Cloud AI'],
+  local: ['💻', 'On-device AI · free'], ollama: ['🦙', 'Ollama · free'], cloud: ['☁️', 'Cloud AI'], claude: ['✳️', 'Claude · your plan'],
 };
 
 export function open({ go, text = null, shared = null, listen = true, spoken = false } = {}) {

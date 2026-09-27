@@ -76,6 +76,21 @@ export function habits() {
   return store.all('habits').filter((x) => !x.archived).sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
 }
 
+// A fitting emoji for a new habit's name.
+const HABIT_EMOJI = [[/read|book|pages/i, '📖'], [/run|jog|walk|steps/i, '🏃'], [/gym|workout|exercis|lift|push-?ups?|train/i, '💪'],
+  [/water|hydrat/i, '💧'], [/meditat|breath|mindful/i, '🧘'], [/yoga|stretch/i, '🤸'], [/sleep|bed|wake|early/i, '😴'],
+  [/journal|write|diary/i, '✍️'], [/study|learn|course|code|coding|practice/i, '📚'], [/veg|fruit|salad|eat|diet|cook/i, '🥗'],
+  [/pray|gratitude|grateful/i, '🙏'], [/clean|tidy|chores/i, '🧹'], [/floss|teeth|skin/i, '🪥'], [/call|family|friends/i, '📞'],
+  [/phone|screen|social/i, '📵'], [/save|money|budget/i, '💰'], [/music|guitar|piano|sing/i, '🎸'], [/cycle|bike|swim/i, '🚴']];
+export function habitEmoji(name) {
+  return HABIT_EMOJI.find(([re]) => re.test(name || ''))?.[1] || '✅';
+}
+
+export function addHabit({ name, emoji, days }) {
+  const last = habits().pop();
+  return store.put('habits', { name, emoji: emoji || habitEmoji(name), days: days && days.length ? days : [0, 1, 2, 3, 4, 5, 6], order: (last?.order ?? last?.createdAt ?? 0) + 1 });
+}
+
 const logId = (habitId, date) => `${habitId}|${date}`;
 
 export function isDone(habitId, date) {

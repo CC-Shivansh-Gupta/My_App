@@ -7,6 +7,7 @@ import { snapshot, related } from '../app/js/jarvis/context.js';
 import { wakeRegex } from '../app/js/jarvis/wake.js';
 import { parseCommand } from '../app/js/intents.js';
 import * as D from '../app/js/dates.js';
+import * as asks from '../app/js/jarvis/asks.js';
 
 // A stand-in for voice.execute: records what ran and can be undone.
 function fakeApp() {
@@ -220,8 +221,11 @@ test('no AI at all: behaves like the old voice assistant', async () => {
   const q = await J.handle('what is the meaning of life?');
   assert.match(q.say, /AI brain/);
   assert.equal(app.ran.length, 1);
-  q.alt.run();
-  assert.deepEqual(app.ran, ['plan my evening', 'what is the meaning of life?']);
+  // …it offers to ask Claude (through the agent) instead.
+  const queued = q.alt.run();
+  assert.equal(queued.title, '✳️ Queued for Claude');
+  assert.deepEqual(asks.pending().map((a) => a.text), ['what is the meaning of life?']);
+  assert.equal(app.ran.length, 1);
 });
 
 test('prompt carries memory, notes and taught examples', () => {
@@ -293,4 +297,81 @@ test('a shared WhatsApp message: the AI adds what it asks; without AI it becomes
   assert.equal(n.alt.keep, true);
   await n.alt.run();
   assert.match(plain.ran[1], /^schedule Team sync moved on \d{4}-\d{2}-\d{2} at 16:00$/);
+});
+
+test('the agent loop: a miss goes back to the AI, which fixes it', async () => {
+  store.reset();
+  const app = fakeApp();
+  const llm = fakeLLM([
+    { say: 'Ticking it off.', do: ['mark meditation done'] },                     // "done" misses in fakeApp
+    { say: 'You had no meditation habit, so I made one.', do: ['add habit meditate'] },
+  ]);
+  const J = createJarvis({ execute: app.execute, llm, now: NOW });
+  const r = await J.handle('ugh finally got my meditation in for the day');
+  assert.deepEqual(app.ran, ['mark meditation done', 'add habit meditate']);
+  assert.equal(llm.calls.length, 2);
+  assert.match(llm.calls[1].at(-1).content, /^Results:\n✗ mark meditation done/);
+  assert.equal(r.miss, false);
+  assert.equal(r.steps, 2);
+  assert.equal(r.learned, undefined); // multi-step answers depend on the moment: not replayed
+});
+
+test('the agent loop: it looks something up, then answers from it', async () => {
+  store.reset();
+  const app = fakeApp();
+  const llm = fakeLLM([
+    { say: 'Let me check.', do: ["what's on tomorrow"] },
+    { say: 'Tomorrow is clear, so the gym at 7 works.', do: [] },
+  ]);
+  const J = createJarvis({ execute: app.execute, llm, now: NOW });
+  const r = await J.handle('should I plan the gym tomorrow morning or is my day packed');
+  assert.equal(r.say, 'Tomorrow is clear, so the gym at 7 works.');
+  assert.match(llm.calls[1].at(-1).content, /Answer to what's on tomorrow/);
+  // A plain success needs no second call.
+  const one = fakeLLM([{ say: 'Added.', do: ['remind me to buy eggs'] }]);
+  await createJarvis({ execute: fakeApp().execute, llm: one, now: NOW }).handle('we are totally out of eggs again ugh');
+  assert.equal(one.calls.length, 1);
+});
+
+test('the loop stops after MAX_STEPS calls', async () => {
+  store.reset();
+  const llm = fakeLLM(() => ({ say: 'Trying.', do: [`mark thing ${Math.random()} done`] }));
+  await createJarvis({ execute: fakeApp().execute, llm, now: NOW }).handle('tick off the thing i did earlier somehow');
+  assert.equal(llm.calls.length, 3);
+});
+
+test('“ask Claude …” queues for the agent; an approved answer runs its commands', async () => {
+  store.reset();
+  const app = fakeApp();
+  const llm = fakeLLM([]);
+  const J = createJarvis({ execute: app.execute, llm, now: NOW, snapshot: () => 'Open tasks: 12' });
+  const q = await J.handle('ask Claude to sort my tasks into headings');
+  assert.equal(q.via, 'claude');
+  assert.equal(llm.calls.length, 0);
+  const [a] = asks.pending();
+  assert.equal(a.text, 'sort my tasks into headings');
+  assert.equal(app.ran.length, 0);
+
+  asks.answer(a, { say: 'Grouped them.', commands: ['add task plan trip under Travel heading'], model: 'Claude' });
+  assert.equal(asks.answered().length, 1);
+  const res = await J.applyAnswer(asks.answered()[0]);
+  assert.deepEqual(app.ran, ['add task plan trip under Travel heading']);
+  assert.equal(res.via, 'claude');
+  assert.equal(asks.answered().length, 0);
+  assert.equal(store.all('jarvisAsks')[0].status, 'done');
+});
+
+test('new commands count as clearly understood', () => {
+  for (const s of ['move buy shoes to tasks', 'add a habit to meditate', 'I want to quit smoking', 'find report', 'add buy shoes to my general tasks']) {
+    assert.equal(rulesConfident(s), true, s);
+  }
+});
+
+test('ways to ask Claude', async () => {
+  store.reset();
+  const J = createJarvis({ execute: fakeApp().execute, now: NOW });
+  for (const s of ['Claude, plan my week', 'ask Claude to review my month', 'have Claude sort my tasks', 'send this to Claude: what should I focus on']) {
+    assert.equal((await J.handle(s)).via, 'claude', s);
+  }
+  assert.deepEqual(asks.pending().map((a) => a.text), ['plan my week', 'review my month', 'sort my tasks', 'what should I focus on']);
 });
