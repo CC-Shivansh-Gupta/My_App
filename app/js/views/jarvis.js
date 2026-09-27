@@ -37,7 +37,7 @@ export function render(ctx) {
     h('div', { class: 'card jv-hero' },
       h('div', null, h('p', { class: 'jv-hero-title' }, `${d.label}`), h('p', { class: 'muted small' }, d.detail)),
       h('button', { class: 'btn primary', onclick: () => panel.open({ go: (r) => { location.hash = `#/${r}`; } }) }, icon('mic', 18), `Talk to ${name}`)),
-    brainCard(ctx), voiceCard(ctx), handsFreeCard(ctx), memoryCard(), skillsCard(), usageCard());
+    brainCard(ctx), voiceCard(ctx), handsFreeCard(ctx), messagesCard(), memoryCard(), skillsCard(), usageCard());
 }
 
 // ---- Brain ------------------------------------------------------------------------------------------
@@ -168,6 +168,18 @@ function handsFreeCard(ctx) {
           ? 'While Daybook is open on this device, say its name to talk — no tap needed. Uses the browser’s free recognizer, so the mic stays on while the app is open. Best in Chrome or Edge.'
           : 'This browser can’t listen continuously. Use Chrome or Edge on a laptop or Android for the wake word.'),
       wake.state.error ? h('p', { class: 'small error' }, wake.state.error) : null));
+}
+
+// ---- Messages (WhatsApp and others) ------------------------------------------------------------------
+function messagesCard() {
+  const base = typeof location !== 'undefined' ? `${location.origin}${location.pathname}` : '';
+  return section('WhatsApp & other messages', null,
+    h('p', { class: 'small muted' }, 'WhatsApp doesn’t let any app read your chats, and tools that get around that can get your number banned. Instead, send it the messages that matter: it adds the events, tasks and deadlines they mention, or keeps them as a note.'),
+    h('ul', { class: 'small steps' },
+      h('li', null, h('b', null, 'Android: '), 'install Daybook (Chrome → ⋮ → Install app). In WhatsApp, long-press a message → Share → Daybook.'),
+      h('li', null, h('b', null, 'iPhone / iPad: '), 'make a Shortcut once: Shortcuts → + → “Receive Text from Share Sheet” → “URL Encode” the Shortcut Input → “Open URLs” with ', h('code', null, `${base}?text=`), ' followed by the encoded text. Name it “Send to Jarvis”; it then appears when you share a message.'),
+      h('li', null, h('b', null, 'Anywhere: '), 'copy the message and paste it into Jarvis. Several lines or a long paste is read as a message, not a command.')),
+    h('p', { class: 'small muted' }, 'Email works the same way automatically: see Email on the ', h('a', { href: '#/agent' }, 'Agent page'), '.'));
 }
 
 // ---- Memory and skills ---------------------------------------------------------------------------------

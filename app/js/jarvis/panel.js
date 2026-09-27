@@ -44,7 +44,7 @@ export const VIA = {
   local: ['💻', 'On-device AI · free'], ollama: ['🦙', 'Ollama · free'], cloud: ['☁️', 'Cloud AI'],
 };
 
-export function open({ go, text = null, listen = true, spoken = false } = {}) {
+export function open({ go, text = null, shared = null, listen = true, spoken = false } = {}) {
   let listening = false;
   let busy = false;
   let quiet = 0; // auto-listens in a row that heard nothing
@@ -100,7 +100,12 @@ export function open({ go, text = null, listen = true, spoken = false } = {}) {
       } }, 'Wrong?'));
     }
     if (res.alt && !item.undone) {
-      actions.push(h('button', { class: 'btn ghost sm', onclick: async () => { W.unlockAudio(); item.undone = true; say(await res.alt.run(), { spoken: false }); } }, res.alt.label));
+      actions.push(h('button', { class: 'btn ghost sm', onclick: async () => {
+        W.unlockAudio();
+        const alt = res.alt;
+        if (alt.keep) res.alt = null; else item.undone = true; // “keep” alternatives add to the result instead of replacing it
+        say(await alt.run(), { spoken: false });
+      } }, res.alt.label));
     }
     if (res.news) actions.push(h('button', { class: 'btn ghost sm', onclick: () => { closeSheet(); go?.('news'); } }, 'Open News'));
     const showCard = res.lines?.length || res.sub || (res.title && res.title !== res.say && !res.chat);
@@ -136,14 +141,18 @@ export function open({ go, text = null, listen = true, spoken = false } = {}) {
 
   function trim() { while (log.length > 40) log.shift(); }
 
-  async function run(input, { spoken: fromVoice = false } = {}) {
+  // A pasted or shared message (several lines, or long) is read for what it asks of you.
+  const looksShared = (t) => /\n/.test(t) || t.length > 220;
+
+  async function run(input, { spoken: fromVoice = false, isShared = false } = {}) {
     const t = String(input || '').trim();
     if (!t || busy) return;
+    const asShared = isShared || (!fromVoice && looksShared(t));
     W.unlockAudio();
     if (listening) { voice.stopListening(); setListening(false); }
     busy = true;
     status.textContent = '';
-    log.push({ who: 'you', text: t });
+    log.push({ who: 'you', text: asShared ? `📥 ${t.length > 300 ? `${t.slice(0, 300)}…` : t}` : t });
     const thinking = { who: 'jarvis', thinking: true, text: '' };
     log.push(thinking);
     drawAll();
@@ -155,7 +164,7 @@ export function open({ go, text = null, listen = true, spoken = false } = {}) {
     }, 350);
     let res;
     try {
-      res = await brain().handle(t);
+      res = asShared ? await brain().handleShared(t) : await brain().handle(t);
     } catch (e) {
       console.error(e);
       res = { say: 'Something went wrong there.', title: `Error: ${e.message}`, via: 'rules' };
@@ -225,7 +234,8 @@ export function open({ go, text = null, listen = true, spoken = false } = {}) {
   obs.observe(document.body, { childList: true });
   wake.pause();
   drawAll();
-  if (text) run(text, { spoken });
+  if (shared) run(shared, { isShared: true });
+  else if (text) run(text, { spoken });
   else if (listen && voice.supported()) startListening();
 }
 

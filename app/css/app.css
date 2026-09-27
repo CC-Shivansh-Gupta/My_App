@@ -975,3 +975,4 @@ details.jv-box > :not(summary) { margin-top: 8px; }
 .jv-progress { display: flex; flex-direction: column; gap: 4px; }
 .jv-bar-meter { width: 90px; height: 6px; border-radius: 6px; background: var(--accent-wash); overflow: hidden; flex: none; }
 .jv-bar-meter i { display: block; height: 100%; background: var(--accent); }
+.steps code { overflow-wrap: anywhere; }

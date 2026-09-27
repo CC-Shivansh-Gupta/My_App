@@ -235,6 +235,13 @@ function boot() {
 
   rerender();
   lastXP = gamify.summary().total;
+  // Shared to Daybook (Android share sheet, or an iPhone Shortcut opening ?text=…): Jarvis reads it.
+  const q = new URLSearchParams(location.search);
+  const shared = ['title', 'text', 'url'].map((k) => q.get(k)).filter(Boolean).join('\n').trim();
+  if (shared || q.has('jarvis')) {
+    history.replaceState(null, '', location.pathname + (location.hash || '#/today'));
+    setTimeout(() => jarvis.open({ go, shared: shared || null, listen: !shared }), 300);
+  }
   setTimeout(socialTick, 3000);
   setInterval(() => socialTick(false), 30000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') socialTick(); });

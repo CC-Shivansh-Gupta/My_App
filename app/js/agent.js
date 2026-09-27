@@ -18,13 +18,15 @@ export const ACTIONS = {
   planTask: { label: 'Plan tasks for a day (overdue, or next week’s priorities)', emoji: '📋' },
   moveTodos: { label: 'Move unfinished to-dos to another day', emoji: '☑️' },
   addTodo: { label: 'Add a to-do for a goal running out of time', emoji: '🎯' },
-  addTask: { label: 'Add tasks (from your notes or the weekly review)', emoji: '📝' },
+  addTask: { label: 'Add tasks (from your notes, email or the weekly review)', emoji: '📝' },
+  addEvent: { label: 'Add events to your calendar (from email invites and messages)', emoji: '📅' },
 };
 
 export const JOBS = {
   'morning-brief': { title: 'Morning brief', emoji: '☀️' },
   'evening-checkin': { title: 'Evening check-in', emoji: '🌙' },
   'weekly-review': { title: 'Weekly review', emoji: '🗓' },
+  'mail-scan': { title: 'Email check', emoji: '📬' },
 };
 
 const KEEP_DAYS = 30;
@@ -41,7 +43,7 @@ export function setAutonomy(type, level) {
 // ---- AI switches (off until you turn them on; the agent also needs an AI key) ------------------
 export function aiSettings() {
   const s = store.pref('agentAI', {});
-  return { summary: Boolean(s.summary), notes: Boolean(s.notes) };
+  return { summary: Boolean(s.summary), notes: Boolean(s.notes), mail: Boolean(s.mail) };
 }
 
 export function setAI(key, on) {
@@ -74,6 +76,14 @@ export function latestBrief(date = D.today()) {
 export function apply(action) {
   if (!action || !ACTIONS[action.type]) return null;
   if (action.type !== 'addTask' && !/^\d{4}-\d{2}-\d{2}$/.test(action.date || '')) return null;
+  if (action.type === 'addEvent') {
+    const title = cleanTitle(action.title);
+    const time = /^\d{2}:\d{2}$/.test(action.time || '') ? action.time : null;
+    const endTime = time && /^\d{2}:\d{2}$/.test(action.endTime || '') && action.endTime > time ? action.endTime : null;
+    if (!title || M.eventsOn(action.date).some((e) => e.title.toLowerCase() === title.toLowerCase())) return null;
+    store.put('events', { title, date: action.date, time, endTime, allDay: !time, repeat: 'none', notes: cleanTitle(action.notes || '') });
+    return `Added “${title}” to your calendar, ${D.fmtDate(action.date)}${time ? ` at ${D.fmtTime(time)}` : ''}`;
+  }
   if (action.type === 'planTask') {
     const t = store.get('tasks', action.taskId);
     if (!t || t.done || t.planned === action.date) return null;

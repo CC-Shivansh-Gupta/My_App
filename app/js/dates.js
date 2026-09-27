@@ -129,13 +129,14 @@ function to24(h, m, ampm) {
 export function parseSmart(input, base = today()) {
   let text = ` ${input} `;
   const out = { date: null, time: null, endTime: null, priority: null, tag: null };
+  // Tries each match in turn: in "Assignment 3 due 30 Sep", "3 due" isn't a date but "30 Sep" is.
   const take = (re, fn) => {
-    const m = text.match(re);
-    if (!m) return false;
-    const ok = fn(m);
-    if (ok === false) return false;
-    text = text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length);
-    return true;
+    for (const m of text.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))) {
+      if (fn(m) === false) continue;
+      text = text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length);
+      return true;
+    }
+    return false;
   };
 
   take(/\s!(high|hi|h|med|medium|m|low|lo|l|1|2|3)(?=\s)/i, (m) => {

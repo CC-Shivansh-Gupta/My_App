@@ -15,7 +15,13 @@
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
   ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
   "shortcuts": [
+    { "name": "Talk to Jarvis", "url": "./?jarvis=1" },
     { "name": "Today", "url": "./#/today" },
     { "name": "Add expense", "url": "./#/money" },
     { "name": "Calendar", "url": "./#/calendar" }
