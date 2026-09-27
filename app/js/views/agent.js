@@ -138,7 +138,7 @@ function setupCard() {
   return section('Set up the agent (once, free)', h('span', { class: 'badge' }, 'Not running yet'),
     h('p', { class: 'small' }, 'The agent runs in your private second-brain repo on GitHub Actions, so it costs nothing and your data never touches a public repo.'),
     h('ol', { class: 'small steps' },
-      h('li', null, 'Turn on sync on this device first (Settings → Sync).'),
+      h('li', null, 'Sign in on this device first (Settings → Account & sync).'),
       h('li', null, h('a', { href: SECRETS_URL, target: '_blank', rel: 'noopener' }, 'Add a repository secret'), ' in second-brain named ', h('code', null, 'DAYBOOK_GIST_TOKEN'), ' and paste the same token you use for sync.'),
       h('li', null, h('a', { href: WORKFLOW_URL, target: '_blank', rel: 'noopener' }, 'Open the Daybook agent workflow'), ' and press “Run workflow” once. After that it runs by itself every morning.'),
       h('li', null, 'Come back here and turn on notifications for each device you want the brief on.')));

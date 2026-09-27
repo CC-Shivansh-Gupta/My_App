@@ -1,9 +1,12 @@
 // Free cross-device sync through a secret GitHub Gist.
 // Each device holds a GitHub token (classic, "gist" scope only). On sync we
 // pull the gist, merge it into local data (newest edit wins per item), and
-// push back if the gist is missing anything.
+// push back if the gist is missing anything. Your AI, voice and vault keys ride
+// along in a second, encrypted file (keys.js); login.js signs a new device in
+// with a password instead of a pasted token.
 
 import * as store from './store.js';
+import * as keys from './keys.js';
 
 const CFG_KEY = 'daybook.sync.v1';
 const FILE = 'daybook-data.json';
@@ -91,6 +94,10 @@ export async function connect(token) {
   await syncNow();
 }
 
+export function token() {
+  return cfg.token || '';
+}
+
 export function disconnect() {
   cfg = {};
   saveCfg();
@@ -114,11 +121,19 @@ export async function syncNow() {
       let remote = {};
       try { remote = text ? JSON.parse(text).data || {} : {}; } catch { remote = {}; }
       const { remoteStale } = store.merge(remote);
-      if (remoteStale || !file) {
-        await api(`/gists/${cfg.gistId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ files: { [FILE]: { content: JSON.stringify(payload()) } } }),
-        });
+      const files = {};
+      if (remoteStale || !file) files[FILE] = { content: JSON.stringify(payload()) };
+      try {
+        const kf = gist.files[keys.FILE];
+        let ktext = kf ? kf.content : null;
+        if (kf && kf.truncated) ktext = await (await fetch(kf.raw_url, { cache: 'no-store' })).text();
+        const up = await keys.sync(ktext, cfg.token);
+        if (up) files[keys.FILE] = { content: up };
+      } catch (e) {
+        console.warn('Keys sync skipped', e);
+      }
+      if (Object.keys(files).length) {
+        await api(`/gists/${cfg.gistId}`, { method: 'PATCH', body: JSON.stringify({ files }) });
       }
       cfg.lastSync = Date.now();
       cfg.error = null;

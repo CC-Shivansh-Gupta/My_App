@@ -1,5 +1,5 @@
 // Offline support: network first (so updates show up immediately), cache as fallback.
-const CACHE = 'daybook-v3';
+const CACHE = 'daybook-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/main.js', 'js/store.js', 'js/sync.js', 'js/dates.js', 'js/ui.js', 'js/charts.js', 'js/models.js',
@@ -11,7 +11,7 @@ const SHELL = [
   'js/views/routine.js', 'js/views/screen.js', 'js/views/stats.js', 'js/views/friends.js',
   'js/agent.js', 'js/views/agent.js',
   'js/jarvis/core.js', 'js/jarvis/memory.js', 'js/jarvis/context.js', 'js/jarvis/llm.js', 'js/jarvis/panel.js', 'js/jarvis/speech.js',
-  'js/jarvis/wake.js', 'js/jarvis/webllm-worker.js', 'js/views/jarvis.js',
+  'js/jarvis/wake.js', 'js/jarvis/webllm-worker.js', 'js/jarvis/asks.js', 'js/views/jarvis.js', 'js/keys.js', 'js/login.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 

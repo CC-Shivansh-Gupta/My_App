@@ -2,6 +2,8 @@
 
 import * as store from '../store.js';
 import * as sync from '../sync.js';
+import * as keys from '../keys.js';
+import * as login from '../login.js';
 import * as M from '../models.js';
 import { h, icon, section, field, segmented, toast } from '../ui.js';
 import { applyTheme } from '../theme.js';
@@ -22,32 +24,81 @@ export function render(ctx) {
 function syncCard(ctx) {
   const st = sync.status();
   if (st.enabled) {
-    return section('Sync across devices', h('span', { class: ['badge', st.error ? 'bad' : 'good'] }, st.error ? 'Error' : 'On'),
-      h('p', { class: 'small' }, `Syncing as ${st.user || 'GitHub user'} through a secret gist. `,
+    const ks = keys.status();
+    return section('Account & sync', h('span', { class: ['badge', st.error ? 'bad' : 'good'] }, st.error ? 'Error' : 'Signed in'),
+      h('p', { class: 'small' }, `Signed in as ${st.user || 'GitHub user'}. Your data syncs through a secret gist. `,
         st.lastSync ? `Last synced ${new Date(st.lastSync).toLocaleString()}.` : 'Not synced yet.'),
       st.error ? h('p', { class: 'small error' }, st.error) : null,
+      h('p', { class: 'small muted' }, '🔑 Your AI brain key, Whisper key and Obsidian vault connection travel with sync (encrypted), so set them up once on any device and the others pick them up.',
+        ks.error ? h('span', { class: 'error' }, ` ${ks.error}`) : ''),
+      passwordBox(ctx),
       h('div', { class: 'btn-row' },
         h('button', { class: 'btn primary', onclick: async () => { await sync.syncNow(); ctx.rerender(); toast(sync.status().error ? 'Sync failed' : 'Synced'); } }, icon('sync', 18), 'Sync now'),
-        h('button', { class: 'btn ghost', onclick: () => { sync.disconnect(); ctx.rerender(); toast('Sync turned off on this device'); } }, 'Turn off on this device')));
+        h('button', { class: 'btn ghost', onclick: () => { sync.disconnect(); ctx.rerender(); toast('Signed out on this device'); } }, 'Sign out on this device')));
   }
+
+  // Signed out: password sign-in first; the token route is for the very first device.
+  const user = h('input', { type: 'text', value: login.defaultUser(), placeholder: 'GitHub username', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false' });
+  const pw = h('input', { type: 'password', placeholder: 'Your Daybook password', autocomplete: 'current-password' });
+  const signIn = h('button', { class: 'btn primary', onclick: async () => {
+    if (!pw.value) { pw.focus(); return; }
+    signIn.disabled = true; signIn.textContent = 'Signing in…';
+    try { await login.signIn(user.value, pw.value); toast('Signed in — your data and keys are here'); } catch (e) { toast(e.message); signIn.disabled = false; signIn.textContent = 'Sign in'; return; }
+    ctx.rerender();
+  } }, 'Sign in');
+  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn.click(); });
+
   const token = h('input', { type: 'password', placeholder: 'ghp_…', autocomplete: 'off', spellcheck: 'false' });
-  const btn = h('button', { class: 'btn primary', onclick: async () => {
+  const btn = h('button', { class: 'btn', onclick: async () => {
     if (!token.value.trim()) { token.focus(); return; }
     btn.disabled = true; btn.textContent = 'Connecting…';
     try {
       await sync.connect(token.value);
-      toast('Sync is on');
+      toast('Sync is on — now set a password so other devices can just sign in');
     } catch (e) {
       toast(`Couldn’t connect: ${e.message}`);
     }
     ctx.rerender();
   } }, 'Connect');
-  return section('Sync across devices', h('span', { class: 'badge' }, 'Off'),
-    h('p', { class: 'small' }, 'Your data lives on this device. To see it on your phone, iPad and laptop, connect a free GitHub token — everything is stored in a private (secret) gist on your account. Do this once per device with the same token.'),
-    h('ol', { class: 'small steps' },
-      h('li', null, h('a', { href: TOKEN_URL, target: '_blank', rel: 'noopener' }, 'Create a token'), ' (classic, only the “gist” box ticked, set expiration to “No expiration”).'),
-      h('li', null, 'Paste it below and press Connect.')),
-    field('GitHub token', token), btn);
+  return section('Account & sync', h('span', { class: 'badge' }, 'Signed out'),
+    h('p', { class: 'small' }, 'Sign in to bring your data, AI keys, vault and voice settings to this device.'),
+    h('div', { class: 'form' }, field('GitHub username', user), field('Password', pw), signIn),
+    h('details', { class: 'jv-box small' }, h('summary', null, 'First device, or no password yet? Connect with a GitHub token'),
+      h('p', { class: 'small' }, 'Your data lives on this device until you connect. Everything is stored in a private (secret) gist on your GitHub account.'),
+      h('ol', { class: 'small steps' },
+        h('li', null, h('a', { href: TOKEN_URL, target: '_blank', rel: 'noopener' }, 'Create a token'), ' (classic, only the “gist” box ticked, expiration “No expiration”).'),
+        h('li', null, 'Paste it below and press Connect.'),
+        h('li', null, 'Then set a password here. Every other device just signs in with it.')),
+      field('GitHub token', token), btn));
+}
+
+function passwordBox(ctx) {
+  const pl = store.pref('passwordLogin', null);
+  const on = Boolean(pl?.on);
+  const pw = h('input', { type: 'password', placeholder: `At least ${login.MIN_LENGTH} characters`, autocomplete: 'new-password' });
+  const again = h('input', { type: 'password', placeholder: 'Same again', autocomplete: 'new-password' });
+  const save = h('button', { class: 'btn primary sm', onclick: async () => {
+    const problem = login.checkPassword(pw.value);
+    if (problem) { toast(problem); pw.focus(); return; }
+    if (pw.value !== again.value) { toast('The two passwords don’t match.'); again.focus(); return; }
+    save.disabled = true; save.textContent = 'Saving…';
+    try { await login.setPassword(pw.value); toast('Password set — sign in with it on your other devices'); } catch (e) { toast(`Couldn’t set it: ${e.message}`); }
+    ctx.rerender();
+  } }, on ? 'Change password' : 'Set password');
+  const form = h('div', { class: 'form' }, field('New password', pw), field('Confirm', again), save);
+  if (!on) {
+    return h('div', { class: 'jv-box' },
+      h('p', { class: 'small' }, h('b', null, 'Sign in on other devices with a password. '), 'No more pasting tokens: a new device only needs your username and this password.'),
+      form,
+      h('p', { class: 'small muted' }, 'An encrypted copy of your sync token is kept in a public gist so a new device can find it. Without the password it’s unreadable, so make it long and one you don’t use anywhere else. A short sentence works well.'));
+  }
+  return h('details', { class: 'jv-box small' },
+    h('summary', null, `🔐 Password sign-in is on${pl.user ? ` for ${pl.user}` : ''}. Change or turn off`),
+    form,
+    h('button', { class: 'btn ghost sm', onclick: async () => {
+      try { await login.removePassword(); toast('Password sign-in turned off'); } catch (e) { toast(e.message); }
+      ctx.rerender();
+    } }, 'Turn off password sign-in'));
 }
 
 const LANGS = [['en-IN', 'English (India)'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-AU', 'English (Australia)'],
@@ -80,10 +131,10 @@ function voiceCard(ctx) {
 
   const key = h('input', { type: 'password', placeholder: prov === 'groq' ? 'gsk_…' : 'sk-…', autocomplete: 'off', spellcheck: 'false', value: cfg.key || '' });
   const whisperBox = whisper ? h('div', { class: 'form' },
-    h('p', { class: 'small muted' }, 'Records what you say and has Whisper transcribe it: much better with accents, names and long lists, and it works in the iPad/iPhone home-screen app. The clip goes to the provider below; your key stays on this device only (it isn’t synced).'),
+    h('p', { class: 'small muted' }, 'Records what you say and has Whisper transcribe it: much better with accents, names and long lists, and it works in the iPad/iPhone home-screen app. The clip goes to the provider below. Your key travels with sync (encrypted), so you only enter it once.'),
     field('Provider', segmented([['groq', 'Groq — free'], ['openai', 'OpenAI']], prov, (v) => { W.setCfg({ provider: v }); ctx.rerender(); }, { small: true })),
     field('API key', key, h('a', { href: W.PROVIDERS[prov].keyUrl, target: '_blank', rel: 'noopener' }, prov === 'groq' ? 'Get a free Groq key (no card needed)' : 'Get an OpenAI key')),
-    h('button', { class: 'btn primary', onclick: () => { W.setCfg({ key: key.value.trim() }); toast(key.value.trim() ? 'Key saved on this device' : 'Key removed'); ctx.rerender(); } }, 'Save key'),
+    h('button', { class: 'btn primary', onclick: () => { W.setCfg({ key: key.value.trim() }); toast(key.value.trim() ? 'Key saved — your other devices get it on their next sync' : 'Key removed'); sync.syncNow(); ctx.rerender(); } }, 'Save key'),
     cfg.key && !W.canRecord() ? h('p', { class: 'small error' }, 'This browser can’t record audio, so the built-in recognizer is used instead.') : null) : null;
 
   const apple = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -96,6 +147,8 @@ function voiceCard(ctx) {
       field('Listening', segmented([['browser', 'Built-in (free)'], ['local', 'On-device Whisper (free)'], ['whisper', 'Cloud Whisper']], cfg.engine === 'local' ? 'local' : whisper ? 'whisper' : 'browser', (v) => { W.setCfg({ engine: v }); ctx.rerender(); }, { small: true }),
         cfg.engine === 'local' ? 'An open-weights Whisper model runs in this browser: no key, nothing leaves the device, and it works in the iPad/iPhone home-screen app. It downloads (~80 MB) the first time you speak.' : null),
       whisperBox,
+      field('Things said without a day go to', segmented([['todo', 'Today’s to-dos'], ['task', 'Tasks']], store.pref('undatedGoesTo', 'todo'), (v) => store.setPref('undatedGoesTo', v), { small: true }),
+        '“Buy milk” or “fix the bike”, said without a day. “Remind me…”, “today” or a date always make a to-do; either way, the reply has a button to switch it.'),
       field('Speak replies out loud', segmented([[true, 'On'], [false, 'Off']], store.pref('voiceReplies', true), (v) => store.setPref('voiceReplies', v))),
       field('Reply voice', reply, apple
         ? 'Sounds robotic? Download a better voice: Settings app → Accessibility → Spoken Content (or Read & Speak) → Voices → English → pick one marked Enhanced or Premium (e.g. Ava, Zoe or Evan), then choose it here.'

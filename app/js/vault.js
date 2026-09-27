@@ -1,7 +1,8 @@
 // Obsidian vault connection: reads the vault's Markdown from its private GitHub repo (the same
 // repo the FIT plugin syncs to every device), caches it for offline use, and writes quick
 // captures to raw/inbox/ and Daybook snapshots to raw/daybook/.
-// The token is kept per device in localStorage; it never goes into the synced data.
+// The connection is kept in localStorage, outside the synced data; it travels to your other
+// devices in sync's separate encrypted keys file (keys.js), so you connect once.
 
 import * as D from './dates.js';
 import { noteTitle, noteBody } from './graph.js';

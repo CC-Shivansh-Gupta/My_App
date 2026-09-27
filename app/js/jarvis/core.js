@@ -5,9 +5,13 @@
 //   2. Daybook's rule-based parser (intents.js) — instant, offline, free — when it clearly understood.
 //   3. An AI model only for the rest: chat, questions about your data, advice, and messy requests.
 //      It answers in JSON and acts by writing ordinary Daybook commands, which run through the
-//      same rules, so a small open-weights model is enough. A request the AI resolved is saved as a
-//      learned phrase, and anything you undo or correct is remembered, so the AI is needed less
-//      and less over time.
+//      same rules, so a small open-weights model is enough. It works in a loop: when a command
+//      fails or it looked something up, it sees the results and gets another go (up to
+//      MAX_STEPS), so it can find the right item, fix a miss or answer from real data.
+//      A request the AI resolved in one go is saved as a learned phrase, and anything you undo
+//      or correct is remembered, so the AI is needed less and less over time.
+//   4. "Ask Claude …" queues a request for the agent, which answers it with Claude Code on your
+//      Claude plan (no extra bill); its commands run here once you approve the answer.
 //
 // No DOM here: the app injects `execute` (voice.js) and `llm` (llm.js), and tests inject fakes.
 
@@ -15,6 +19,7 @@ import * as D from '../dates.js';
 import { parseSmart } from '../dates.js';
 import { parseCommand, tidyTitle } from '../intents.js';
 import * as mem from './memory.js';
+import * as asks from './asks.js';
 
 // ---- When the rules are enough -----------------------------------------------------------------
 const TODO_LEAD = /^(?:remind me|remember to|don'?t forget|i need to|i have to|i must|i should|i gotta|i got to|add\b|to-?do|put\b|buy\b|get\b|call\b|email\b|text\b|pay\b|book\b|pick up\b|order\b|clean\b|fix\b|finish\b|send\b|check\b|renew\b|cancel\b|return\b|water\b|wash\b|write\b|read\b|make\b)/i;
@@ -23,13 +28,21 @@ const ADVICE = /\b(?:plan|organi[sz]e|prioriti[sz]e|suggest|recommend|advice|adv
 const QUESTION = /\?\s*$|^(?:what|what's|whats|when|where|who|which|why|how|is|are|am|do|does|did|can|could|would|will|should|have|has)\b/i;
 
 const words = (s) => s.trim().split(/\s+/).length;
+export const MAX_STEPS = 3;
+
+// One line per command for the AI's next turn: what happened, and any looked-up data.
+export function resultLine(cmd, r) {
+  const body = [r.say || r.title, ...(r.answer && r.lines ? r.lines.slice(0, 8) : [])].filter(Boolean).join(' | ');
+  return `${r.miss ? '✗' : '✓'} ${cmd} → ${body.slice(0, 400)}`;
+}
 
 // Did the rules clearly understand `text`? (`parsed` is parseCommand's result.)
 export function rulesConfident(text, parsed = parseCommand(text)) {
   const t = text.trim().replace(/[’‘]/g, "'");
   if (parsed.type === 'empty') return true;
   const explicit = /^(?:add|remind|schedule|note|new task|task|set|log|spent|paid|mark|track|start|open|finished|til)\b/i.test(t);
-  if (['move', 'delete', 'rename', 'priority', 'knowledge'].includes(parsed.type)) return true;
+  if (['move', 'delete', 'rename', 'priority', 'knowledge', 'convert', 'habit', 'vice'].includes(parsed.type)) return true;
+  if (parsed.type === 'query' && parsed.what === 'find') return true;
   if (ADVICE.test(t) && !explicit && parsed.type !== 'navigate') return false;
   if (parsed.type === 'query') return true;
   // A question the rules couldn't place fell through to "add a to-do called <question>".
@@ -44,8 +57,12 @@ export function rulesConfident(text, parsed = parseCommand(text)) {
 }
 
 // ---- Talking to the AI --------------------------------------------------------------------------
-const COMMANDS = `- to-do: "remind me to <thing> <when>"
-- task: "add task <thing> [by <day>] [high priority] [under <heading> heading]"
+const COMMANDS = `- to-do (for a particular day, default today): "remind me to <thing> <when>"
+- task (the general list: no set day, or bigger work): "add task <thing> [by <day>] [high priority] [under <heading> heading]"
+- move a to-do off today into tasks: "move <to-do> to tasks [under <heading> heading]"; everything left today: "move everything left today to tasks"
+- put a task on a day's list: "move <task> to today's list" / "move <task> to tomorrow's list"
+- new habit to build: "add habit <name> [every day|on weekdays|on weekends|on mon, wed and fri]"; habit to break: "add bad habit <name>"
+- find an item by name (see which list it's on): "find <words>"
 - event: "schedule <title> <day> at <time> [to <time>]"
 - expense: "spent <amount> on <thing> [yesterday]"
 - note: "note: <text>"; learning: "TIL <text>"
@@ -70,6 +87,8 @@ Reply with JSON only, exactly this shape:
 {"say":"<what you say out loud: 1-3 short, natural sentences>","do":["<command>"],"remember":["<lasting fact about them>"],"ask":"<one question, only if you truly need more information, else empty>"}
 Rules:
 - Put commands in "do" only when they asked you to add, log, change or look something up. Several requests → several commands.
+- Pick the right place by meaning: something to do on a day → to-do; a project, errand with no day, or "someday" → task; something to do regularly → habit; something to stop doing → bad habit.
+- After your commands run you'll see "Results:". If one failed or you looked something up, you get another turn: fix it with new commands, or finish. When finished, reply with "do": [] and a short final "say".
 - Keep their date words as they said them (today, tomorrow, Friday, next week); never invent dates, amounts or names.
 - For questions about their day, answer in "say" from the facts below; if the answer isn't there, use a look-up command.
 - For general questions, chat or advice, just answer in "say" (brief, warm, a little witty, never a lecture) with "do": [].
@@ -130,6 +149,7 @@ const FORGET = /^(?:please\s+)?forget\s+(?:that\s+|about\s+|what i said about\s+
 const WHAT_YOU_KNOW = /^(?:what do you (?:know|remember)(?: about me)?|what have you (?:learned|learnt)(?: about me)?|what do you know about me)$/i;
 const CALL_ME = /^(?:call me|my name is|i'?m called)\s+([\p{L}][\p{L}'-]{0,20})$/iu;
 const BYE = /^(?:(?:ok(?:ay)?\s+)?(?:thanks|thank you|thx|cheers)(?:\s+\w+)?|that'?s all|that is all|nothing|never ?mind|stop|stop listening|be quiet|quiet|shut up|bye|goodbye|see you|go to sleep|dismissed)$/i;
+const ASK_CLAUDE = /^(?:(?:please\s+)?ask claude(?:\s+to)?\b|claude\s*[,:]|(?:send|pass|give)\s+(?:this|it|that)\s+to claude(?:\s+to)?\b|(?:have|let) claude\b)[\s:,-]*(.+)$/i;
 const HELLO = /^(?:hi|hello|hey|yo|good (?:morning|afternoon|evening)|are you there|you there|wake up)$/i;
 
 const tidy = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -161,10 +181,15 @@ export function createJarvis(deps) {
   async function runAll(commands, { lead = '' } = {}) {
     const results = [];
     for (const c of commands) results.push(await runCommand(c));
+    return fold(results, commands, { lead });
+  }
+
+  function fold(results, commands, { lead = '', final = false } = {}) {
     const undos = results.map((r) => r.undo).filter(Boolean);
     const one = results.length === 1 ? results[0] : null;
     const answers = results.filter((r) => r.answer || r.miss || r.spoken).map((r) => r.say);
-    const say = [lead, ...(lead ? answers : results.map((r) => r.say))].filter(Boolean).join(' ');
+    // `final`: the AI already saw every result and wrote the last word itself.
+    const say = final && lead ? lead : [lead, ...(lead ? answers : results.map((r) => r.say))].filter(Boolean).join(' ');
     return {
       ...(one || {}),
       say: say || one?.say || 'Done.',
@@ -177,7 +202,7 @@ export function createJarvis(deps) {
     };
   }
 
-  async function askAI(text) {
+  async function askAI(text, extra = []) {
     const engines = deps.llm?.engines?.() || [];
     if (!engines.length) return null;
     const now = deps.now?.() || new Date();
@@ -187,6 +212,7 @@ export function createJarvis(deps) {
       text, name: name(), user: deps.user?.() || '', date: today(), time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
       snapshot: deps.snapshot?.() || '', facts, examples, related: deps.related?.(text) || [], history,
     });
+    msgs.push(...extra);
     let lastError = null;
     for (const engine of engines) {
       try {
@@ -198,6 +224,37 @@ export function createJarvis(deps) {
     }
     if (lastError) throw lastError;
     return null;
+  }
+
+  // The agent loop: run the AI's commands; if one missed or looked something up, show it the
+  // results and let it continue (fix, act on what it found, or answer), up to MAX_STEPS calls.
+  async function loop(text, first) {
+    const commands = []; const results = []; const extra = [];
+    let reply = first; let steps = 1; let final = false;
+    for (;;) {
+      const batch = [];
+      for (const c of reply.do) {
+        if (commands.includes(c) && !results[commands.indexOf(c)].answer) continue; // never repeat an action
+        const r = await runCommand(c);
+        commands.push(c); results.push(r); batch.push([c, r]);
+      }
+      const needMore = batch.some(([, r]) => r.miss || r.answer);
+      if (!needMore || steps >= MAX_STEPS) break;
+      extra.push({ role: 'assistant', content: JSON.stringify({ say: reply.say, do: reply.do }) },
+        { role: 'user', content: `Results:\n${batch.map(([c, r]) => resultLine(c, r)).join('\n')}\nContinue: fix what failed or act on what you found, or finish with "do": [] and a final "say".` });
+      let next = null;
+      try { next = await askAI(text, extra); } catch { next = null; }
+      if (!next) break;
+      steps++;
+      for (const f of next.remember) mem.remember(f, { source: 'ai' });
+      reply = { ...next, ask: next.ask || '' };
+      if (!reply.do.length) { final = true; break; }
+    }
+    const res = fold(results, commands, { lead: reply.say || first.say, final });
+    // What's left failing at the end is what counts: a miss the AI then fixed isn't a miss.
+    const fixed = (i) => results.slice(i + 1).some((r) => !r.miss && !r.answer);
+    res.miss = results.some((r, i) => r.miss && !fixed(i));
+    return { res, reply, steps, results };
   }
 
   function finish(res, text, via) {
@@ -225,6 +282,10 @@ export function createJarvis(deps) {
       fixing = { text: lastText };
       return handle(wrong[1]);
     }
+
+    // Queued for Claude (via the agent, on your Claude plan).
+    const toClaude = t.match(ASK_CLAUDE);
+    if (toClaude) return finish(queueForClaude(toClaude[1]), text, 'claude');
 
     // Teaching.
     const teach = mem.parseTeach(t);
@@ -315,9 +376,9 @@ export function createJarvis(deps) {
     // The AI.
     // Without an AI, a question the rules couldn't place shouldn't turn into a to-do.
     const unanswerable = !confident && QUESTION.test(t.replace(/[’‘]/g, "'")) && parsed.type === 'todo';
-    const noBrain = (why) => ({ say: `I can only answer that with an AI brain${why ? ` — ${why}` : ''}. You can set one up for free on the Jarvis page.`,
+    const noBrain = (why) => ({ say: `I can only answer that with an AI brain${why ? ` — ${why}` : ''}. You can set one up for free on the Jarvis page, or I can ask Claude.`,
       title: 'That needs an AI brain', sub: why || 'Jarvis page → Brain: on-device, Ollama or a free cloud key', miss: true,
-      alt: { label: 'Add as a to-do', run: () => runAll([t]) } });
+      alt: { label: 'Ask Claude instead', run: () => queueForClaude(t) } });
     let reply = null;
     try { reply = await askAI(t); } catch (e) {
       if (!confident) {
@@ -334,17 +395,21 @@ export function createJarvis(deps) {
       return finish(learnFix(await runAll([t]), [t]), text, 'rules');
     }
     for (const f of reply.remember) mem.remember(f, { source: 'ai' });
+    const remembered = [...reply.remember];
     let res;
     if (reply.do.length) {
-      res = await runAll(reply.do, { lead: reply.say });
-      if (!res.miss && !fixing && safeToLearn(t, reply.do)) res.learned = mem.teach(t, reply.do, { source: 'learned', name: name() });
-      learnFix(res, reply.do);
+      const run = await loop(t, reply);
+      res = run.res;
+      reply = run.reply;
+      if (run.steps === 1 && !res.miss && !fixing && safeToLearn(t, res.commands)) res.learned = mem.teach(t, res.commands, { source: 'learned', name: name() });
+      learnFix(res, res.commands.filter((c, i) => !run.results[i].miss && !run.results[i].answer));
+      if (run.steps > 1) res.steps = run.steps;
     } else {
       fixing = null;
       res = { say: reply.say || 'Hmm, I’m not sure.', title: reply.say || 'Hmm, I’m not sure.', chat: true };
     }
     if (reply.ask) { res.say = [res.say, reply.ask].filter((x) => x && !res.say.includes(reply.ask)).join(' '); res.ask = true; }
-    if (reply.remember.length) res.remembered = reply.remember;
+    if (remembered.length) res.remembered = remembered;
     res.engine = reply.engine;
     res.model = reply.model;
     res.tokens = reply.tokens;
@@ -384,6 +449,21 @@ export function createJarvis(deps) {
     return finish(res, label, 'rules');
   }
 
+  function queueForClaude(request) {
+    const a = asks.add(request);
+    const waiting = asks.pending().length;
+    return { say: 'Sent to Claude. The agent answers it on its next run, and I’ll show you what it suggests before doing anything.',
+      title: '✳️ Queued for Claude', sub: `${request}${waiting > 1 ? ` · ${waiting} waiting` : ''}`, undo: () => asks.close(a, 'dismissed', 'Cancelled'), queued: a };
+  }
+
+  // Carry out an answer Claude sent back (after you approved it): its commands run like the AI's.
+  async function applyAnswer(a) {
+    const res = a.do?.length ? await runAll(a.do, { lead: a.say }) : { say: a.say || 'Claude had nothing to add.', title: a.say || 'No changes', chat: true, commands: [] };
+    asks.close(a, 'done', res.title);
+    res.model = a.model || 'Claude';
+    return finish(res, `Claude: ${a.text}`, 'claude');
+  }
+
   function undo({ quiet = false } = {}) {
     if (!last) return { say: 'There’s nothing to undo.', title: 'Nothing to undo', via: 'rules' };
     const { res, text } = last;
@@ -402,7 +482,7 @@ export function createJarvis(deps) {
     return { say: 'Undone.', title: 'Undone', via: 'rules' };
   }
 
-  return { handle, handleShared, undo, undoResult, history, get fixing() { return fixing; } };
+  return { handle, handleShared, undo, undoResult, applyAnswer, queueForClaude, history, get fixing() { return fixing; } };
 }
 
 function pick(xs) { return xs[Math.floor(Math.random() * xs.length)]; }

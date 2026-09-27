@@ -4,7 +4,8 @@
 //     the iPad/iPhone home-screen app, where the built-in one usually doesn't.
 //   - replies: OpenAI's natural text-to-speech voices.
 // Groq's free tier covers transcription (free key at console.groq.com, no card).
-// The key lives only on this device (localStorage), never in the synced data.
+// The key is kept in localStorage, outside the synced data; it travels to your other devices
+// in sync's separate encrypted keys file (keys.js).
 
 const CFG_KEY = 'daybook.voice.v1';
 

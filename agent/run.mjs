@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Runs Daybook agent jobs against your sync gist:
-//   DAYBOOK_GIST_TOKEN=ghp_… node agent/run.mjs [auto|morning-brief|evening-checkin|weekly-review|mail-scan]
+//   DAYBOOK_GIST_TOKEN=ghp_… node agent/run.mjs [auto|morning-brief|evening-checkin|weekly-review|mail-scan|ask-claude]
+// With CLAUDE_CODE_OAUTH_TOKEN set, every run also answers Jarvis's "ask Claude" requests (agent/claude.mjs).
 // "auto" is the manager: mornings run the brief; evenings run the check-in,
 // plus the weekly review on Sundays. It's meant for a scheduled GitHub Action
 // in a PRIVATE repo (see "Agent setup" in README.md).
@@ -14,9 +15,13 @@ import { client } from './gist.mjs';
 import { generateVapidKeys, sendPush } from './webpush.mjs';
 import { aiClient, summarize, findTasks } from './ai.mjs';
 import { mailScan, parseAccounts } from './mail.mjs';
+import { claudeClient } from './claude.mjs';
+import * as asks from '../app/js/jarvis/asks.js';
+import { buildMessages, parseReply } from '../app/js/jarvis/core.js';
+import { snapshot } from '../app/js/jarvis/context.js';
 
 const BUILD = { 'morning-brief': A.morningBrief, 'evening-checkin': A.eveningCheckin, 'weekly-review': A.weeklyReview };
-export const JOBS = [...Object.keys(BUILD), 'mail-scan'];
+export const JOBS = [...Object.keys(BUILD), 'mail-scan', 'ask-claude'];
 
 // Which jobs "auto" runs at this local time. With email set up, it's checked first, so the
 // brief and check-in include what just arrived.
@@ -64,11 +69,36 @@ async function aiStep(ai, job, result, state, now) {
   return extra;
 }
 
-export async function run({ token, gistId, job = 'auto', subject, ai = null, fetchImpl = fetch, now = Date.now(), date = D.today(), mail = [], mailFetch }) {
+// "Ask Claude …" requests from Jarvis: answer each with the best AI there is (Claude Code on your
+// plan when it's set up). The commands in an answer wait in the app until you approve them.
+export async function answerAsks(ai, { date, now }) {
+  const list = asks.pending().slice(0, 5);
+  let answered = 0; let errors = 0;
+  const d = new Date(now);
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  for (const a of list) {
+    try {
+      const msgs = buildMessages({ text: `${a.text}\n\n(Queued request: you won't see results, so include every command needed in "do". Take time to think it through.)`,
+        name: 'Claude', user: store.pref('userName', ''), date, time, snapshot: snapshot(date, d) });
+      const reply = parseReply(await ai.chat(msgs, { maxTokens: 1500 }));
+      if (!reply) throw new Error('unreadable answer');
+      asks.answer(a, { say: [reply.say, reply.ask].filter(Boolean).join(' '), commands: reply.do, model: ai.model() });
+      answered++;
+    } catch (e) {
+      asks.answer(a, { error: String(e.message || e).slice(0, 80) });
+      errors++;
+    }
+  }
+  asks.prune(now);
+  return { answered, errors, waiting: asks.pending().length };
+}
+
+export async function run({ token, gistId, job = 'auto', subject, ai = null, claude = null, fetchImpl = fetch, now = Date.now(), date = D.today(), mail = [], mailFetch }) {
   const jobs = plan(job, new Date(now), { mail: mail.length > 0 });
   for (const j of jobs) if (!JOBS.includes(j)) throw new Error(`Unknown job "${j}". Jobs: auto, ${JOBS.join(', ')}`);
   // Nothing to check: don't touch the gist at all.
-  if (jobs.length === 1 && jobs[0] === 'mail-scan' && !mail.length) {
+  // (With Claude set up, the run still goes on to answer any “ask Claude” requests.)
+  if (jobs.length === 1 && jobs[0] === 'mail-scan' && !mail.length && !claude) {
     return { jobs: [{ job: 'mail-scan', suggested: 0, done: 0, waiting: 0, notified: false, ai: 'off', skipped: 'no MAIL_ACCOUNTS secret' }], sent: 0, dropped: 0, failed: 0 };
   }
   const gh = client(token, fetchImpl);
@@ -84,7 +114,15 @@ export async function run({ token, gistId, job = 'auto', subject, ai = null, fet
   if (store.pref('agentPush', null)?.publicKey !== publicKey) store.setPref('agentPush', { publicKey });
 
   const results = [];
+  if (claude) store.setPref('claudeAgentSeen', true);
+  const asker = claude || ai;
+  if (asker && asks.pending().length) {
+    const r = await answerAsks(asker, { date, now });
+    results.push({ job: 'ask-claude', suggested: 0, done: 0, waiting: r.waiting, answered: r.answered, errors: r.errors, ai: asker.kind === 'claude' ? 'claude' : 'ok',
+      notification: r.answered ? { title: 'Claude answered', body: `${r.answered} ${r.answered === 1 ? 'request' : 'requests'} ready to review`, url: '#/jarvis', tag: 'daybook-claude' } : null });
+  }
   for (const j of jobs) {
+    if (j === 'ask-claude') continue; // answered above, whenever any are waiting
     if (j === 'mail-scan') {
       if (!mail.length) { results.push({ job: j, suggested: 0, done: 0, waiting: A.pending().length, notification: null, ai: 'off', skipped: 'no MAIL_ACCOUNTS secret' }); continue; }
       const built = await mailScan({ accounts: mail, state, ai, useAI: A.aiSettings().mail, date, now, ...(mailFetch ? { fetchImpl: mailFetch } : {}) });
@@ -135,17 +173,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error('DAYBOOK_GIST_TOKEN is not set. Add your Daybook sync token as an Actions secret with that name.');
     process.exit(1);
   }
+  const claude = process.env.CLAUDE_CODE_OAUTH_TOKEN
+    ? claudeClient({ token: process.env.CLAUDE_CODE_OAUTH_TOKEN, model: process.env.CLAUDE_MODEL || '', bin: process.env.CLAUDE_BIN || '' })
+    : null;
+  // The other AI steps (summaries, notes, email) use the free API key if there is one, else Claude.
   const ai = process.env.AI_API_KEY
     ? aiClient({ apiKey: process.env.AI_API_KEY, baseUrl: process.env.AI_BASE_URL || undefined, model: process.env.AI_MODEL || '' })
-    : null;
+    : claude;
   run({
-    token, ai,
+    token, ai, claude,
     job: process.argv[2] || 'auto',
     mail: parseAccounts(process.env.MAIL_ACCOUNTS || ''),
     gistId: process.env.DAYBOOK_GIST_ID || undefined,
     subject: process.env.DAYBOOK_URL || 'https://cc-shivansh-gupta.github.io/My_App/',
   }).then((r) => {
     for (const j of r.jobs) {
+      if (j.job === 'ask-claude') {
+        console.log(`ask-claude: ${j.answered} answered${j.errors ? `, ${j.errors} failed (retried next run)` : ''}, ${j.waiting} waiting; AI: ${j.ai}.`);
+        continue;
+      }
       if (j.job === 'mail-scan') {
         console.log(j.skipped ? `mail-scan: skipped (${j.skipped}).` : `mail-scan: ${j.scanned} new emails in ${j.accounts} account(s)${j.errors ? `, ${j.errors} problem(s) (details on the Agent page)` : ''}; ${j.suggested} new suggestions, ${j.done} done automatically; AI: ${j.ai}.`);
         continue;

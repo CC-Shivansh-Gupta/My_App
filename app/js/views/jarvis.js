@@ -10,6 +10,7 @@ import * as mem from '../jarvis/memory.js';
 import * as S from '../jarvis/speech.js';
 import * as wake from '../jarvis/wake.js';
 import * as panel from '../jarvis/panel.js';
+import * as asks from '../jarvis/asks.js';
 import { h, icon, section, field, segmented, toast, empty } from '../ui.js';
 
 let unwatch = null;
@@ -37,7 +38,30 @@ export function render(ctx) {
     h('div', { class: 'card jv-hero' },
       h('div', null, h('p', { class: 'jv-hero-title' }, `${d.label}`), h('p', { class: 'muted small' }, d.detail)),
       h('button', { class: 'btn primary', onclick: () => panel.open({ go: (r) => { location.hash = `#/${r}`; } }) }, icon('mic', 18), `Talk to ${name}`)),
-    brainCard(ctx), voiceCard(ctx), handsFreeCard(ctx), messagesCard(), memoryCard(), skillsCard(), usageCard());
+    claudeCard(ctx), brainCard(ctx), voiceCard(ctx), handsFreeCard(ctx), messagesCard(), memoryCard(), skillsCard(), usageCard());
+}
+
+// ---- Claude (through the agent, on your Claude plan) ------------------------------------------------------
+function claudeCard(ctx) {
+  const ready = asks.answered();
+  const waiting = asks.pending();
+  const done = asks.recent(3);
+  const setUp = store.pref('claudeAgentSeen', false);
+  const item = (a) => h('div', { class: 'jv-ask' },
+    h('p', { class: 'small muted' }, `You: “${a.text}”`),
+    h('p', null, a.say || 'No reply text.'),
+    a.do?.length ? h('ul', { class: 'voice-lines' }, a.do.map((c) => h('li', null, c))) : null,
+    h('div', { class: 'btn-row' },
+      a.do?.length ? h('button', { class: 'btn primary sm', onclick: async () => { const r = await panel.applyAnswer(a); toast(r.title || 'Done'); ctx.rerender(); } }, 'Do it') : null,
+      h('button', { class: 'btn ghost sm', onclick: () => { asks.close(a, a.do?.length ? 'dismissed' : 'done'); ctx.rerender(); } }, a.do?.length ? 'Dismiss' : 'Got it')));
+  return section('Claude', h('span', { class: ['badge', ready.length ? 'good' : ''] }, ready.length ? `${ready.length} answered` : waiting.length ? `${waiting.length} waiting` : 'Your plan'),
+    h('p', { class: 'small muted' }, 'For the big asks — “plan my week”, “sort my tasks into headings”, “what should I focus on this month?” — say “ask Claude …”. '
+      + 'Your agent answers on its next run with Claude Code on your Claude plan, so it costs nothing extra. It isn’t instant (minutes to a few hours), and nothing changes until you tap “Do it”.'),
+    ready.length ? h('div', { class: 'stack' }, ready.map(item)) : null,
+    waiting.length ? h('ul', { class: 'small voice-lines' }, waiting.map((a) => h('li', null, `⏳ ${a.text}${a.error ? ` — last try: ${a.error}` : ''}`,
+      ' ', h('button', { class: 'btn ghost sm', onclick: () => { asks.close(a, 'dismissed', 'Cancelled'); ctx.rerender(); } }, 'Cancel')))) : null,
+    done.length && !ready.length ? h('p', { class: 'small muted' }, `Last: ${done.map((a) => `“${a.text}” — ${a.status === 'done' ? a.outcome || 'done' : 'dismissed'}`).join(' · ')}`) : null,
+    setUp ? null : h('p', { class: 'small' }, 'One-time setup: see “Claude for the agent” in the ', h('a', { href: 'https://github.com/CC-Shivansh-Gupta/My_App#claude-for-the-agent-optional-uses-your-claude-plan', target: '_blank', rel: 'noopener' }, 'README'), '.'));
 }
 
 // ---- Brain ------------------------------------------------------------------------------------------
@@ -121,7 +145,7 @@ function cloudBox(ctx, c) {
     h('div', { class: 'row2' }, field('Model', model), field('Daily cap', cap, `${left} left today`)),
     h('button', { class: 'btn primary sm', onclick: () => {
       llm.setCfg({ cloudKey: key.value.trim(), cloudModel: model.value.trim(), dailyCloud: Math.max(0, Number(cap.value) || 0), ...(base ? { cloudBase: base.value.trim() } : {}) });
-      toast('Saved on this device');
+      toast('Saved — your other signed-in devices get it on their next sync');
       ctx.rerender();
     } }, 'Save'));
 }

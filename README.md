@@ -6,7 +6,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 
 - **Today**: one screen with today's schedule, to-dos, tasks due, habits to tick, what I spent, what I'm reading, and top news.
 - **Calendar**: month view plus a day agenda. Events can repeat (daily, weekdays, weekly, monthly, yearly).
-- **To-dos**: a daily list. Anything unfinished carries over, and one tap moves it to today.
+- **To-dos**: a daily list. Anything unfinished carries over, and one tap moves it to today. Say “move buy shoes to tasks” (or “move everything left today to tasks”) to push things off today and into the general task list.
 - **Tasks**: everything on my plate, grouped under my own **headings** (Work, Home, Trip…), which I can collapse, rename, reorder and drag tasks between. There's also a view by due date. Tasks have tags and priorities, and "Do today" puts a task on today's list.
 - **Reading list**: what I'm reading now, what's up next, and what I've finished, with progress, ratings and notes.
 - **Habits**: tick the week in a grid, with streaks, a 30-day completion trend and a heatmap per habit.
@@ -23,9 +23,10 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 - **Notes**: quick notes with search and pinning. Lines like `[ ] milk` become tickable checklists, and I can dictate a note by voice.
 - **Knowledge map**: an Obsidian-style graph of my second brain. It shows my Obsidian vault, read from its private GitHub repo, together with Daybook's notes, learnings, books, shows and goals. Tap a dot to read the page with its links and backlinks, open it in Obsidian, or **Copy for AI** (the page plus its neighbours, ready to paste into any chatbot). **Send to inbox** drops a thought into the vault's `raw/inbox/`, and **Copy Daybook to vault** writes my learnings, reading, goals and notes to `raw/daybook/` so assistants can ingest them. In notes, `[[Page name]]` makes a link (typing `[[` suggests pages) and tapping it opens the map. Without a vault, the map still shows Daybook's own items.
 - **Jarvis** (tap the mic, press V, or just say "Jarvis, …"): an assistant you can talk to like a person. It does things ("remind me to call the bank tomorrow and pay rent on Friday", "spent 250 on lunch", "I was in meetings from 2 to 4"), changes what's already there ("move the dentist to Friday at 5", "postpone the report", "cancel standup tomorrow", which cancels just that day of a repeating event, "delete all standup", "rename task report to Q3 report", "make taxes high priority"), adds to your knowledge map ("add to my knowledge base: …" goes to the vault's `raw/inbox/` for the gardener to file, or becomes a Daybook note if no vault is connected), answers questions about your day and data ("what's my day look like?", "how much did I spend on food this month?"), gives advice ("I'm feeling lazy, what should I do first?", "plan my evening"), and chats. It works in the cheapest way that will do the job:
-  1. **Free and instant, no AI:** the rule-based parser (`app/js/intents.js`) handles everyday commands. Its **memory** covers "remember that my gym closes at 10", "forget …" and "when is Priya's birthday?", and **phrases it has learned** are run straight away.
-  2. **An AI model** is used only when those can't help. It sees a short summary of your day (a few hundred tokens), the memories that matter for your request, and any matching notes. It acts by writing ordinary Daybook commands, which then run through the same rules, so a small open-weights model is enough.
+  1. **Free and instant, no AI:** the rule-based parser (`app/js/intents.js`) handles everyday commands, and knows the difference between today's to-dos, the general task list and habits: “add buy shoes to my general tasks”, “move buy shoes to tasks”, “move the report to today's list”, “add a habit to read 20 pages on weekdays”, “I want to quit smoking” (a habit to break), “find report”. Every to-do it adds has a **Move to Tasks** button, and **Settings → Voice → Things said without a day go to** can send “buy milk”-style requests to Tasks instead of today. Its **memory** covers "remember that my gym closes at 10", "forget …" and "when is Priya's birthday?", and **phrases it has learned** are run straight away.
+  2. **An AI model** is used only when those can't help. It sees a short summary of your day (a few hundred tokens), the memories that matter for your request, and any matching notes. It acts by writing ordinary Daybook commands, which then run through the same rules, so a small open-weights model is enough. It works in a **loop**, not as a one-off guess. If a command misses or it looked something up (“find report”, “what's on tomorrow”), it sees the results and gets another turn to fix the command, act on what it found, or answer from real data. It gets up to 3 calls, and a plain success needs only one.
   3. **It keeps improving.** When the AI works out a request, the phrase is saved as a learned phrase, so next time it runs free and instantly. **Undo**, "no, I meant …" or the **Wrong?** button forget the wrong guess and learn what you meant. You can also teach it directly: "when I say good night, stop tracking and brief me for tomorrow". The Jarvis page shows everything it remembers and has learned, and how many requests needed no AI at all.
+  4. **Claude, for the big asks:** “ask Claude to plan my week”, or “sort my tasks into headings”. The request is queued. Your agent answers it on its next run with Claude Code on **your Claude plan**, so there's no API bill. The answer waits on the Jarvis page until you tap **Do it**. It isn't instant (minutes to a few hours, or right away if you press *Run workflow*), so everyday requests stay with the free, instant brains above. See [Claude for the agent](#claude-for-the-agent-optional-uses-your-claude-plan).
 
   **Brains, all free** (Jarvis page → Brain, set up per device):
   - **On-device:** an open-weights model (Qwen3 / Qwen3.5 / Llama 3.2, 0.5–2.3 GB, downloaded once) runs in the browser on your GPU through [WebLLM](https://github.com/mlc-ai/web-llm). It's private, works offline and has no limits. Needs WebGPU: Chrome or Edge on a laptop or Android, or Safari 26+.
@@ -35,7 +36,7 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 
   **Ears and voice, also free:** the browser's own recognizer; **on-device Whisper** (open weights, ~80 MB, which also works in the iPad/iPhone home-screen app, needs no key and keeps audio on the device); or cloud Whisper with a Groq/OpenAI key. For replies, the most natural device voice, the open-weights **Kokoro** voice running on the device (British "George" for the full Jarvis), or OpenAI's voices. **Keep the conversation going** makes it listen again after each spoken reply until you say "thanks". The **wake word** (Chrome/Edge) lets you say "Jarvis, add milk to my list" while the app is open. You can rename it and tell it what to call you.
 
-  Keys and model choices stay on each device (`localStorage`). Memories, learned phrases and usage counts sync like your other data. Code: `app/js/jarvis/` (`core.js` routing and learning, `memory.js`, `llm.js`, `context.js`, `speech.js`, `wake.js`, `panel.js`) and `app/js/views/jarvis.js`.
+  Brain choices (on-device, Ollama, wake word, reply voice) stay on each device. The **keys** (cloud AI key, Whisper key) and your vault connection travel with sync, encrypted, so you enter them once. Memories, learned phrases and usage counts sync like your other data. Code: `app/js/jarvis/` (`core.js` routing and learning, `memory.js`, `llm.js`, `context.js`, `speech.js`, `wake.js`, `panel.js`) and `app/js/views/jarvis.js`.
 - **Agent**: a small team of scheduled jobs that run in my private second-brain repo, for free:
   - **Morning brief** (about 7am): today's events, to-dos, overdue tasks, streaks at risk, budget pace, and goals running out of time.
   - **Evening check-in** (about 9pm): a notification only when something's missing ("Log today's spending? · Screen time? · 2 habits unticked"), plus an offer to move unfinished to-dos to tomorrow.
@@ -69,6 +70,8 @@ My personal all-in-one tracker. **Live at https://cc-shivansh-gupta.github.io/My
 | Sync between devices | Each device merges its data with a **secret GitHub Gist** on my account (newest edit per item wins) | free |
 | Agent | Scheduled GitHub Actions in the private `second-brain` repo read and write the same secret gist, and send Web Push notifications themselves, so no server is needed | free (about 90 of the 2,000 free private-repo minutes a month) |
 | Jarvis's AI | Open-weights models on the device (WebLLM) or via Ollama; or Groq's free tier, capped per day. Most requests need no AI at all | free |
+| Claude for big asks (optional) | Claude Code in the agent's Actions job, on your existing Claude plan | no extra cost |
+| Sign-in | Password-encrypted sync token in a public gist; keys encrypted in the secret gist | free |
 | AI for the agent (optional) | Any OpenAI-compatible API; the default is Groq's free tier (no card, and it doesn't keep inference data by default) | free, rate-limited |
 | News polling | A scheduled GitHub Action fetches the feeds every 3 hours and publishes `data/news.json` with the site | free for public repos |
 
@@ -82,7 +85,10 @@ My data never goes into this repo. It stays in each device's storage and in my s
    - **iPad / iPhone:** open the URL in Safari or Chrome and tap the **Share** icon (the square with an up arrow). In Chrome it sits at the right end of the address bar. Then pick **Add to Home Screen**. Chrome on iPad has no "Install app" menu item, and it can only add to the Home Screen on iPadOS/iOS 16.4 or later. On older versions, use Safari. Settings → *Install on your devices* shows the steps for whichever device you open it on.
    - **Android:** open it in Chrome → ⋮ → **Install app**.
    - **Laptop:** open it in Chrome or Edge → click the install icon in the address bar. (On a Mac with Safari: File → **Add to Dock**.)
-4. **Turn on sync:** create a [classic token with only the `gist` scope](https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync) and set it to no expiration. In the app go to **Settings → Sync** and paste the token, then do the same on each device. The first device creates the gist and the others find it automatically.
+4. **Turn on sync, once:** create a [classic token with only the `gist` scope](https://github.com/settings/tokens/new?scopes=gist&description=Daybook%20sync) and set it to no expiration. On your first device go to **Settings → Account & sync → Connect with a GitHub token** and paste it. Then **set a password** in the same place.
+5. **Every other device just signs in:** Settings → Account & sync → your GitHub username (filled in for you on GitHub Pages) and the password. Your data arrives, and so do your AI key, Whisper key and Obsidian vault connection. There's no token to paste and nothing to set up per device except the things that really are per device: notification permission, the on-device model and the wake word.
+
+   *How the sign-in works without a server:* your sync token is encrypted with your password (PBKDF2-SHA256, 600,000 rounds → AES-GCM) and kept in a small **public** gist, so a new device can find it from your username alone. Without the password it's unreadable. The password is never stored or sent anywhere. Because the encrypted copy is public, the password must be at least 12 characters: use a sentence you don't use anywhere else. Your data and keys stay in the secret gist, and the keys are encrypted there as well (`daybook-keys.json`, with a key derived from the sync token). You can turn password sign-in off at any time, which deletes the public gist. If you create a new sync token, set the password again. Code: `app/js/login.js`, `app/js/keys.js`.
 
 ## Second brain setup (one-time, free)
 
@@ -98,6 +104,20 @@ The agent's code is in [`agent/`](agent) and [`app/js/agent.js`](app/js/agent.js
 5. *AI and the gardener (optional):* create a free key at [console.groq.com/keys](https://console.groq.com/keys) and add it to second-brain as the `AI_API_KEY` secret. For another provider, also set the `AI_BASE_URL` variable (for example `https://generativelanguage.googleapis.com/v1beta/openai` for Gemini) and, if you like, `AI_MODEL`. Then switch AI on in **Agent → AI**. For the gardener's pull requests, turn on **second-brain → Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**.
 
 It runs at about 07:00 (01:23 UTC) and 21:00 (15:17 UTC); GitHub often starts scheduled runs a few minutes late. **Run workflow** has a menu to run a single job (morning brief, evening check-in, weekly review or vault gardener). Anyone who can push to this repo's default branch could change code that runs with the gist token. Today that is only me. To lock it down, set `DAYBOOK_AGENT_REF` to a commit SHA. GitHub pauses scheduled workflows in a repo after 60 days without commits, so if the brief stops arriving, check second-brain's Actions tab.
+
+## Claude for the agent (optional, uses your Claude plan)
+
+Claude can't be called straight from a web page on your plan. Your Claude subscription only works through Claude Code, and putting its login in a website would break Anthropic's terms and expose your account. So Claude runs where Claude Code can: in the agent's GitHub Actions job, as the official CLI (`claude -p`). It's signed in with a token for your own plan, and usage counts toward your plan's limits like any Claude Code use. There's no API key and no extra bill. Actions minutes come from GitHub's free 2,000 a month for private repos; each answer takes about a minute.
+
+1. On your laptop, with [Claude Code](https://claude.com/claude-code) installed, run `claude setup-token`. Sign in, and copy the long-lived token it prints.
+2. In **second-brain → Settings → Secrets and variables → Actions**, add it as the secret `CLAUDE_CODE_OAUTH_TOKEN`.
+3. In second-brain's `.github/workflows/daybook-agent.yml`, add one line to the `env:` of the step that runs `agent/run.mjs`:
+   ```yaml
+   CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+   ```
+   Optionally, add `CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}` and set the variable to pick a model (for example `sonnet` or `opus`). Add `ask-claude` to the workflow's job menu if you want a button that only answers waiting requests.
+
+From then on every agent run first answers any waiting “ask Claude …” requests. It then sends a push notification (“Claude answered”), and the answers wait on the Jarvis page for **Do it** or **Dismiss**. With no `AI_API_KEY` secret, Claude also writes the brief summaries and reads your notes and emails. With one, those keep using the free key and Claude only answers your requests. Claude runs in an empty folder with shell, editing and web tools switched off, so it only reads the prompt (your request plus the same short summary of your day Jarvis uses) and writes an answer. Code: `agent/claude.mjs`, `app/js/jarvis/asks.js`.
 
 ## Friends setup (one-time, free)
 
@@ -135,6 +155,8 @@ No dependencies are needed apart from Node 20+.
 app/                 the PWA (index.html, css/, js/, icons/, sw.js, manifest)
   js/store.js        local-first data store and merge logic
   js/sync.js         GitHub Gist sync
+  js/keys.js         AI / voice / vault keys that travel with sync, encrypted
+  js/login.js        password sign-in for new devices
   js/dates.js        dates + natural-language parsing
   js/views/*.js      one file per screen
   js/jarvis/         the assistant: routing, memory & learning, LLM engines, on-device speech, wake word, conversation panel
@@ -142,6 +164,7 @@ scripts/fetch-news.mjs   feed poller used by the GitHub Action
 app/js/agent.js          brief, check-in and weekly review rules; suggestions, approve/dismiss (shared by app and agent)
 agent/run.mjs            the scheduled jobs and the "auto" manager that picks them (run from second-brain's Actions)
 agent/ai.mjs             optional AI step (any OpenAI-compatible API)
+agent/claude.mjs         Claude Code (`claude -p`) as the agent's AI, on your Claude plan
 agent/webpush.mjs        Web Push (VAPID + aes128gcm) with node:crypto only
 news/sources.json        feeds to poll
 .github/workflows/deploy.yml   test → build (+ news) → deploy to Pages, every push and every 3h
