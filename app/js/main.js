@@ -26,6 +26,9 @@ import * as stats from './views/stats.js';
 import * as gamify from './gamify.js';
 import * as friends from './views/friends.js';
 import * as agent from './views/agent.js';
+import * as jarvisView from './views/jarvis.js';
+import * as jarvis from './jarvis/panel.js';
+import * as llm from './jarvis/llm.js';
 import * as social from './social.js';
 import * as voice from './voice.js';
 import * as G from './gym/model.js';
@@ -35,7 +38,7 @@ const VIEWS = {
   today: [today, 'todo'], calendar: [calendar, 'event'], tasks: [tasks, 'task'], habits: [habits, 'todo'],
   goals: [goals, 'goal'], gym: [gym, 'todo'], money: [expenses, 'expense'], notes: [notes, 'note'], brain: [brain, 'note'],
   reading: [reading, 'reading'], news: [news, 'reading'], settings: [settings, 'todo'],
-  friends: [friends, 'todo'], learn: [learn, 'learning'], watch: [watch, 'watch'], routine: [routine, 'track'], screen: [screen, 'todo'], stats: [stats, 'todo'], agent: [agent, 'todo'],
+  friends: [friends, 'todo'], learn: [learn, 'learning'], watch: [watch, 'watch'], routine: [routine, 'track'], screen: [screen, 'todo'], stats: [stats, 'todo'], agent: [agent, 'todo'], jarvis: [jarvisView, 'todo'],
   more: [{ render: settings.renderMore }, 'todo'],
 };
 const ROUTES = Object.fromEntries(Object.entries(VIEWS).map(([k, [view, add]]) => [k, { ...ROUTE_META[k], view, add }]));
@@ -178,8 +181,9 @@ async function socialTick(force = true) {
   if (await social.refreshAll().catch(() => false)) { if (current === 'friends') rerender(); else renderNav(); }
 }
 
+const go = (r) => { location.hash = `#/${r}`; };
 function openVoice() {
-  voice.openVoice({ go: (r) => { location.hash = `#/${r}`; } });
+  jarvis.open({ go });
 }
 
 function boot() {
@@ -189,7 +193,7 @@ function boot() {
 
   const fab = h('button', { class: 'fab', 'aria-label': 'Add (N)', 'data-tip': 'Add something (N)',
     onclick: () => quickAdd({ kind: ROUTES[current].add }) }, icon('plus', 26));
-  const micFab = h('button', { class: 'fab mic-fab', 'aria-label': 'Voice (V)', 'data-tip': 'Voice assistant (V)',
+  const micFab = h('button', { class: 'fab mic-fab', 'aria-label': `${jarvis.name()} (V)`, 'data-tip': `Talk to ${jarvis.name()} (V)`,
     onclick: openVoice }, icon('mic', 24));
   document.body.append(h('div', { class: 'shell' }, sidebar, main), bottom, workoutPill, micFab, fab);
 
@@ -210,7 +214,7 @@ function boot() {
     if (isSheetOpen()) return;
     if (e.key === 'n' || e.key === 'N' || e.key === '+') { e.preventDefault(); quickAdd({ kind: ROUTES[current].add }); return; }
     if (e.key === 'v' || e.key === 'V') { e.preventDefault(); openVoice(); return; }
-    const jump = { t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', i: 'brain', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats', f: 'friends', a: 'agent' }[e.key];
+    const jump = { j: 'jarvis', t: 'today', c: 'calendar', k: 'tasks', h: 'habits', u: 'routine', g: 'goals', y: 'gym', m: 'money', o: 'notes', i: 'brain', l: 'learn', r: 'reading', b: 'watch', w: 'news', s: 'stats', f: 'friends', a: 'agent' }[e.key];
     if (jump && !isSheetOpen()) location.hash = `#/${jump}`;
   });
 
@@ -235,6 +239,9 @@ function boot() {
   setInterval(() => socialTick(false), 30000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') socialTick(); });
   gym.startTicker();
+  jarvis.startWake(go);
+  let wakeOn = llm.cfg().wake;
+  llm.onChange(() => { if (llm.cfg().wake !== wakeOn) { wakeOn = llm.cfg().wake; jarvis.startWake(go); } });
   sync.start();
   news.load();
 

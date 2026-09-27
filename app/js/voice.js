@@ -1,13 +1,13 @@
-// Voice assistant: listen (browser speech recognition), understand (intents.js),
-// act on the data, and answer out loud (speech synthesis). All free and on-device
-// apart from the browser's own speech service — or, if you add a key in Settings,
-// Whisper for listening and a natural cloud voice for replies (whisper.js).
+// Voice: listen (browser speech recognition, or Whisper), carry out a command (intents.js → your
+// data) and answer out loud. All free and on-device apart from the browser's own speech service —
+// or, if you choose, Whisper and a natural voice in the cloud (whisper.js) or in the browser
+// (jarvis/speech.js). The conversation around it — Jarvis — lives in jarvis/.
 
 import * as store from './store.js';
 import * as D from './dates.js';
 import * as M from './models.js';
 import { parseCommand, bestMatch } from './intents.js';
-import { h, icon, sheet, closeSheet, isSheetOpen, toast, money } from './ui.js';
+import { h, icon, toast, money } from './ui.js';
 import { topNews } from './views/news.js';
 import { addGoal } from './views/goals.js';
 import * as G from './gym/model.js';
@@ -18,6 +18,7 @@ import * as SCR from './views/screen.js';
 import * as X from './gamify.js';
 import * as V from './vices.js';
 import * as W from './whisper.js';
+import * as S from './jarvis/speech.js';
 
 const tidy = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -67,28 +68,47 @@ function deviceVoice() {
 }
 
 function speakDevice(text) {
-  if (!('speechSynthesis' in window)) return;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    const voice = deviceVoice();
-    u.lang = voice?.lang || lang();
-    if (voice) u.voice = voice;
-    u.rate = 1;
-    u.pitch = 1;
-    speechSynthesis.speak(u);
-  } catch { /* ignore */ }
+  if (!('speechSynthesis' in window)) return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      const voice = deviceVoice();
+      u.lang = voice?.lang || lang();
+      if (voice) u.voice = voice;
+      u.rate = 1;
+      u.pitch = 1;
+      u.onend = resolve;
+      u.onerror = resolve;
+      speechSynthesis.speak(u);
+      // Some browsers never fire onend; don't wait forever.
+      setTimeout(resolve, 1500 + text.length * 90);
+    } catch { resolve(); }
+  });
 }
 
-export function speak(text, { force = false } = {}) {
+// The open-weights Kokoro voice chosen in Settings ('local:<voice>'), if any.
+export function localVoice() {
+  const r = W.cfg().reply || '';
+  return r.startsWith('local:') ? r.slice(6) : null;
+}
+
+// Speaks `text`; resolves when it has finished (so a conversation can listen again).
+export async function speak(text, { force = false } = {}) {
   if ((!force && !store.pref('voiceReplies', true)) || !text) return;
-  try { speechSynthesis?.cancel(); } catch { /* ignore */ }
-  if (W.cloudVoice()) W.speakCloud(text).catch(() => speakDevice(text));
-  else speakDevice(text);
+  stopSpeaking();
+  const plain = text.replace(/[*_#`]/g, '').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '');
+  if (localVoice()) {
+    try { return await S.speakLocal(plain, localVoice(), W.unlockAudio()); } catch (e) { console.warn('Local voice failed', e); }
+  } else if (W.cloudVoice()) {
+    try { return await W.speakCloud(plain); } catch { /* fall back to the device voice */ }
+  }
+  return speakDevice(plain);
 }
 
 export function stopSpeaking() {
   W.stopSpeaking();
+  S.stopLocal();
   try { speechSynthesis?.cancel(); } catch { /* ignore */ }
 }
 
@@ -262,13 +282,13 @@ export function execute(text) {
       return { say: `Opening ${it.route}.`, title: `Opening ${it.route}`, go: it.route };
 
     case 'todo': {
-      if (!it.title) return { say: 'What should I add?', title: 'What should I add?' };
+      if (!it.title) return { say: 'What should I add?', title: 'What should I add?', miss: true };
       const one = [{ title: it.title, date: it.date }];
       return addTodos(it.items || one, it.items ? one : it.alt, t);
     }
 
     case 'task': {
-      if (!it.title) return { say: 'What’s the task?', title: 'What’s the task?' };
+      if (!it.title) return { say: 'What’s the task?', title: 'What’s the task?', miss: true };
       let heading = null;
       if (it.heading) heading = bestMatch(it.heading, M.taskHeadings(), (g) => g.name, 0.5) || M.addHeading(tidy(it.heading));
       const one = [{ title: it.title, due: it.due, priority: it.priority, tag: it.tag }];
@@ -309,14 +329,14 @@ export function execute(text) {
 
     case 'finishReading': {
       const r = bestMatch(it.target, store.all('reading').filter((x) => x.status !== 'done'), (x) => x.title, 0.5);
-      if (!r) return { say: `I couldn’t find ${it.target} on your reading list.`, title: `Not on your list: ${it.target}` };
+      if (!r) return { say: `I couldn’t find ${it.target} on your reading list.`, title: `Not on your list: ${it.target}`, miss: true };
       store.put('reading', { ...r, status: 'done', progress: 100, finishedAt: t });
       return { say: `Nice! Marked ${r.title} as finished.`, title: `Finished: ${r.title} 🎉`, undo: () => store.put('reading', r) };
     }
 
     case 'slip': {
       const v = bestMatch(it.target, V.vices(), (x) => x.name, 0.4);
-      if (!v) return { say: `I couldn’t find a habit to break called ${it.target}. Add it under Habits → Habits to break.`, title: `No match for “${it.target}”`, go: null };
+      if (!v) return { say: `I couldn’t find a habit to break called ${it.target}. Add it under Habits → Habits to break.`, title: `No match for “${it.target}”`, go: null, miss: true };
       const r = V.logSlip(v, it.date);
       const mult = X.SEVERITY[store.pref('penaltyLevel', 'normal')] ?? 1;
       return { say: `Logged a slip on ${v.name}. That's minus ${Math.round((v.penalty || 10) * mult)} XP. Tomorrow's a new streak.`, title: `${v.emoji || '🚫'} Slip: ${v.name}`, sub: `−${Math.round((v.penalty || 10) * mult)} XP`, undo: () => store.remove('slips', r.id) };
@@ -347,9 +367,9 @@ export function execute(text) {
       if (task) { M.toggleTask(task, true); return { say: `Completed the task ${task.title}.`, title: `Done: ${task.title}`, undo: () => M.toggleTask(task, false) }; }
       if (!it.strict) {
         // Not a habit or to-do: most likely something to remember.
-        return { say: `I couldn’t find a habit or to-do called ${it.target}.`, title: `No match for “${it.target}”`, sub: 'Say “add habit …” in the Habits tab, or rephrase.' };
+        return { say: `I couldn’t find a habit or to-do called ${it.target}.`, title: `No match for “${it.target}”`, sub: 'Say “add habit …” in the Habits tab, or rephrase.', miss: true };
       }
-      return { say: `I couldn’t find ${it.target}.`, title: `No match for “${it.target}”` };
+      return { say: `I couldn’t find ${it.target}.`, title: `No match for “${it.target}”`, miss: true };
     }
 
     case 'goal': {
@@ -423,10 +443,10 @@ export function execute(text) {
     }
 
     case 'query':
-      return answer(it, t);
+      return { ...answer(it, t), answer: true };
 
     default:
-      return { say: 'Sorry, I didn’t understand that.', title: 'Sorry, I didn’t get that.' };
+      return { say: 'Sorry, I didn’t understand that.', title: 'Sorry, I didn’t get that.', miss: true };
   }
 }
 
@@ -556,7 +576,7 @@ function answer(q, t) {
     if (!items.length) return { say: 'Nothing new matching your interests right now.', title: 'No new matches', go: 'news' };
     return { say: `Here are the top ${items.length}: ${items.map((i, n) => `${n + 1}. ${i.title}`).join('. ')}.`, title: 'Top picks for you', lines: items.map((i) => `• ${i.title}`), go: null, news: true };
   }
-  return { say: 'Sorry, I can’t answer that yet.', title: 'Sorry, I can’t answer that yet.' };
+  return { say: 'Sorry, I can’t answer that yet.', title: 'Sorry, I can’t answer that yet.', miss: true };
 }
 
 function range(p, t) {
@@ -572,111 +592,4 @@ function range(p, t) {
     case 'year': return [t.slice(0, 4) + '-01-01', t, 'this year'];
     default: return [t.slice(0, 8) + '01', t, 'this month'];
   }
-}
-
-// ---- The voice sheet ---------------------------------------------------------------------------
-const EXAMPLES = ['Remind me to call the bank tomorrow', 'Spent 250 on lunch', 'Schedule dentist Friday at 3 pm', 'I meditated',
-  'TIL compound interest beats timing the market', 'I was in meetings from 2 to 4', 'Add Dune to my watch list', 'Screen time phone 3 hours',
-  'What should I be doing now?', 'What level am I?', 'Brief me'];
-
-export function openVoice({ autoStart = true, go } = {}) {
-  let listening = false;
-  const status = h('p', { class: 'voice-status' });
-  const transcript = h('p', { class: 'voice-transcript' });
-  const result = h('div', { class: 'voice-result' });
-  const mic = h('button', { class: 'voice-mic', 'aria-label': 'Start listening' }, icon('mic', 34));
-  const typed = h('input', { class: 'voice-typed', placeholder: 'Or type a command…', autocomplete: 'off', enterkeyhint: 'go', 'data-key': 'voice-typed' });
-  const examples = h('div', { class: 'voice-examples' },
-    h('p', { class: 'sub-head' }, 'Try saying'),
-    h('div', { class: 'chips' }, EXAMPLES.map((ex) => h('button', { class: 'chip', onclick: () => run(ex) }, `“${ex}”`))));
-
-  const setListening = (on) => {
-    listening = on;
-    mic.classList.toggle('on', on);
-    mic.setAttribute('aria-label', on ? 'Stop listening' : 'Start listening');
-    if (on) { status.textContent = 'Listening…'; transcript.textContent = ''; }
-  };
-
-  const run = (text) => {
-    W.unlockAudio();
-    if (listening) { stopListening(); setListening(false); }
-    transcript.textContent = `“${text}”`;
-    examples.style.display = 'none';
-    let res;
-    try { res = execute(text); } catch (e) { console.error(e); res = { say: 'Something went wrong.', title: `Error: ${e.message}` }; }
-    status.textContent = '';
-    showResult(res);
-    speak(res.say);
-    if (res.go) setTimeout(() => { closeSheet(); go?.(res.go); }, 700);
-  };
-
-  const showResult = (res) => {
-    const actions = [];
-    if (res.undo) {
-      actions.push(h('button', { class: 'btn ghost sm', onclick: () => { res.undo(); result.replaceChildren(h('p', { class: 'muted' }, 'Undone.')); speak('Undone.'); } }, 'Undo'));
-    }
-    if (res.alt) {
-      actions.push(h('button', { class: 'btn ghost sm', onclick: () => { W.unlockAudio(); const next = res.alt.run(); showResult(next); speak(next.say); } }, res.alt.label));
-    }
-    if (res.news) actions.push(h('button', { class: 'btn ghost sm', onclick: () => { closeSheet(); go?.('news'); } }, 'Open News'));
-    actions.push(h('button', { class: 'btn primary sm', onclick: start }, icon('mic', 16), 'Again'));
-    result.replaceChildren(
-      h('div', { class: 'voice-card' },
-        h('p', { class: 'voice-title' }, res.title),
-        res.sub ? h('p', { class: 'muted small' }, res.sub) : null,
-        res.lines ? h('ul', { class: 'voice-lines' }, res.lines.map((l) => h('li', null, l))) : null,
-        h('div', { class: 'btn-row' }, actions)));
-  };
-
-  const blocked = () => {
-    const help = micHelp();
-    status.textContent = '';
-    result.replaceChildren(h('div', { class: 'voice-card voice-help' },
-      h('p', { class: 'voice-title' }, `🎙️ ${help.title}`),
-      h('ol', { class: 'small steps' }, help.steps.map((x) => h('li', null, x))),
-      h('div', { class: 'btn-row' },
-        h('button', { class: 'btn primary sm', onclick: async () => { if (await requestMic()) start(); else status.textContent = 'Still blocked — follow the steps above, then try again.'; } }, icon('mic', 16), 'Try again'),
-        h('a', { class: 'btn ghost sm', href: '#/settings', onclick: () => closeSheet() }, 'Voice settings'))));
-  };
-
-  const start = () => {
-    W.unlockAudio();
-    if (listening) { finishListening(); return; }
-    result.replaceChildren();
-    if (!supported()) {
-      status.textContent = 'Voice input isn’t available in this browser. Type below, or tap the 🎤 on your keyboard to dictate.';
-      typed.focus();
-      return;
-    }
-    setListening(true);
-    listen({
-      onInterim: (tx) => { transcript.textContent = tx; },
-      onStatus: (m) => { status.textContent = m; if (m !== 'Listening…') mic.classList.remove('on'); },
-      onFinal: (tx) => { setListening(false); run(tx); },
-      onError: (m) => {
-        setListening(false);
-        if (m === 'not-allowed') blocked();
-        else status.textContent = m === 'unsupported'
-          ? 'Voice input isn’t available here. Turn on Whisper in Settings → Voice assistant, type below, or use the keyboard’s 🎤.'
-          : m;
-      },
-      onEnd: () => { if (listening) setListening(false); },
-    });
-  };
-
-  mic.addEventListener('click', start);
-  typed.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && typed.value.trim()) { e.preventDefault(); const v = typed.value.trim(); typed.value = ''; run(v); }
-  });
-
-  const panel = sheet('Voice', h('div', { class: 'voice' }, mic, status, transcript, result, typed, examples));
-  panel.classList.add('voice-sheet');
-  const obs = new MutationObserver(() => { if (!document.body.contains(panel)) { stopListening(); obs.disconnect(); } });
-  obs.observe(document.body, { childList: true });
-  if (autoStart && supported()) start();
-  else if (!supported()) status.textContent = 'Type a command below, or tap the 🎤 on your keyboard to dictate.';
-}
-
-export function isOpen() {
-  return isSheetOpen() && Boolean(document.querySelector('.voice-sheet'));
 }

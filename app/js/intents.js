@@ -74,7 +74,10 @@ export function tidyTitle(s) {
 
 const ROUTE_WORDS = { today: 'today', home: 'today', calendar: 'calendar', schedule: 'calendar', agenda: 'calendar', task: 'tasks',
   tasks: 'tasks', habit: 'habits', habits: 'habits', money: 'money', expense: 'money', expenses: 'money', spending: 'money',
-  budget: 'money', reading: 'reading', 'reading list': 'reading', books: 'reading', news: 'news', note: 'notes', notes: 'notes', settings: 'settings' };
+  budget: 'money', reading: 'reading', 'reading list': 'reading', books: 'reading', news: 'news', note: 'notes', notes: 'notes', settings: 'settings',
+  goal: 'goals', goals: 'goals', gym: 'gym', workouts: 'gym', routine: 'routine', 'day tracker': 'routine', stats: 'stats', level: 'stats',
+  friends: 'friends', agent: 'agent', learnings: 'learn', 'watch list': 'watch', watchlist: 'watch', 'screen time': 'screen',
+  'knowledge map': 'brain', 'second brain': 'brain', jarvis: 'jarvis', assistant: 'jarvis', memory: 'jarvis' };
 
 const CURRENCY = /(?:₹|\$|€|£|rs\.?|inr|rupees?|bucks|dollars?|euros?|pounds?)/i;
 const AMOUNT = new RegExp(`(?:${CURRENCY.source}\\s?)?(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?:\\s?${CURRENCY.source})?`, 'i');
@@ -95,8 +98,8 @@ export function parseCommand(input, base = todayStr()) {
   if (!t) return { type: 'empty' };
 
   // ---- navigation ----
-  let m = t.match(/^(?:open|go to|show(?: me)?|switch to|take me to|jump to)\s+(?:the\s+|my\s+)*(today|home|calendar|schedule|agenda|tasks?|habits?|money|expenses?|spending|budget|reading(?: list)?|books|news|notes?|settings)(?:\s+(?:page|tab|screen|section))?$/);
-  if (m) return { type: 'navigate', route: ROUTE_WORDS[m[1]] };
+  let m = t.match(/^(?:open|go to|show(?: me)?|switch to|take me to|jump to)\s+(?:the\s+|my\s+)*(today|home|calendar|schedule|agenda|tasks?|habits?|money|expenses?|spending|budget|reading(?: list)?|books|news|notes?|settings|goals?|gym|workouts|routine|day tracker|stats|level|friends|agent|learnings|watch ?list|screen time|knowledge map|second brain|jarvis|assistant|memory)(?:\s+(?:page|tab|screen|section))?$/);
+  if (m) return { type: 'navigate', route: ROUTE_WORDS[m[1]] || ROUTE_WORDS[m[1].replace(' ', '')] };
 
   // ---- questions ----
   const question = /^(?:what|what's|whats|how|how's|which|any|anything|do i|did i|have i|is there|are there|tell me|read|list|give me|brief me|show me|summari[sz]e)\b/.test(t) || /\?$/.test(input.trim());

@@ -10,6 +10,8 @@ const SHELL = [
   'js/views/notes.js', 'js/views/gym.js', 'js/views/goals.js', 'js/views/learnings.js', 'js/views/watch.js',
   'js/views/routine.js', 'js/views/screen.js', 'js/views/stats.js', 'js/views/friends.js',
   'js/agent.js', 'js/views/agent.js',
+  'js/jarvis/core.js', 'js/jarvis/memory.js', 'js/jarvis/context.js', 'js/jarvis/llm.js', 'js/jarvis/panel.js', 'js/jarvis/speech.js',
+  'js/jarvis/wake.js', 'js/jarvis/webllm-worker.js', 'js/views/jarvis.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 

@@ -15,7 +15,8 @@ export const PROVIDERS = {
 
 export const CLOUD_VOICES = ['marin', 'cedar', 'coral', 'nova', 'sage', 'ash'];
 
-// { engine: 'browser' | 'whisper', provider: 'groq' | 'openai', key, reply: '' | 'device:<name>' | 'cloud:<voice>' }
+// { engine: 'browser' | 'whisper' | 'local', provider: 'groq' | 'openai', key, reply: '' | 'device:<name>' | 'cloud:<voice>' | 'local:<voice>' }
+// 'local' is Whisper running in the browser (jarvis/speech.js): free, private, no key.
 export function cfg() {
   try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; }
 }
@@ -36,7 +37,11 @@ export function canRecord() {
 
 export function listeningOn() {
   const c = cfg();
-  return c.engine === 'whisper' && Boolean(c.key) && canRecord();
+  return ((c.engine === 'whisper' && Boolean(c.key)) || c.engine === 'local') && canRecord();
+}
+
+export function localListening() {
+  return cfg().engine === 'local' && canRecord();
 }
 
 export function cloudVoice() {
@@ -136,6 +141,10 @@ export function record({ onFinal, onError, onEnd, onStatus, hint = '', lang = 'e
 }
 
 export async function transcribe(blob, { hint = '', lang = 'en' } = {}) {
+  if (localListening()) {
+    const S = await import('./jarvis/speech.js');
+    try { return await S.transcribeLocal(blob, { lang }); } catch (e) { throw new Error(`On-device Whisper failed: ${e.message}`); }
+  }
   const p = provider();
   const ext = /mp4|m4a|aac/.test(blob.type) ? 'mp4' : /ogg/.test(blob.type) ? 'ogg' : /wav/.test(blob.type) ? 'wav' : 'webm';
   const form = new FormData();
@@ -165,6 +174,7 @@ export function stopSpeaking() {
 }
 
 // Speaks with a cloud voice. Rejects on any failure so the caller can fall back to the device.
+// Resolves when it has finished speaking.
 export async function speakCloud(text, voice = cloudVoice()) {
   const p = provider();
   const ac = unlockAudio();
@@ -181,7 +191,9 @@ export async function speakCloud(text, voice = cloudVoice()) {
   const src = ac.createBufferSource();
   src.buffer = audio;
   src.connect(ac.destination);
-  src.start();
   playing = src;
-  src.onended = () => { if (playing === src) playing = null; };
+  await new Promise((resolve) => {
+    src.onended = () => { if (playing === src) playing = null; resolve(); };
+    src.start();
+  });
 }
