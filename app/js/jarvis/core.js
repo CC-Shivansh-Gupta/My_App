@@ -20,6 +20,7 @@ import { parseSmart } from '../dates.js';
 import { parseCommand, tidyTitle } from '../intents.js';
 import * as mem from './memory.js';
 import * as asks from './asks.js';
+import { partialSay } from './stream.js';
 
 // ---- When the rules are enough -----------------------------------------------------------------
 const TODO_LEAD = /^(?:remind me|remember to|don'?t forget|i need to|i have to|i must|i should|i gotta|i got to|add\b|to-?do|put\b|buy\b|get\b|call\b|email\b|text\b|pay\b|book\b|pick up\b|order\b|clean\b|fix\b|finish\b|send\b|check\b|renew\b|cancel\b|return\b|water\b|wash\b|write\b|read\b|make\b)/i;
@@ -78,11 +79,11 @@ const COMMANDS = `- to-do (for a particular day, default today): "remind me to <
 - knowledge map / second brain: "add to my knowledge base: <idea, fact or note worth keeping>"
 - open a page: "open <today|calendar|tasks|habits|goals|gym|routine|money|notes|knowledge map|reading|news|settings>"`;
 
-export function systemPrompt({ name = 'Jarvis', user = '', date, time }) {
+export function systemPrompt({ name = 'Jarvis', user = '', date, time, extraCommands = [], persona = '' }) {
   return `You are ${name}, ${user ? `${user}'s` : 'the user\'s'} personal assistant inside Daybook, their life tracker app. `
     + `Now: ${D.DAY_NAMES[D.weekday(date)]} ${date}, ${time}.
 You act by writing Daybook commands: short plain-English sentences the app already understands.
-${COMMANDS}
+${COMMANDS}${extraCommands.length ? `\n${extraCommands.join('\n')}` : ''}
 Reply with JSON only, exactly this shape:
 {"say":"<what you say out loud: 1-3 short, natural sentences>","do":["<command>"],"remember":["<lasting fact about them>"],"ask":"<one question, only if you truly need more information, else empty>"}
 Rules:
@@ -92,20 +93,40 @@ Rules:
 - Keep their date words as they said them (today, tomorrow, Friday, next week); never invent dates, amounts or names.
 - For questions about their day, answer in "say" from the facts below; if the answer isn't there, use a look-up command.
 - For general questions, chat or advice, just answer in "say" (brief, warm, a little witty, never a lecture) with "do": [].
-- "remember" is only for stable facts or preferences they tell you about themselves (people, dates, likes, routines).`;
+- "remember" is only for stable facts or preferences they tell you about themselves (people, dates, likes, routines).${persona ? `\n${persona}` : ''}`;
 }
 
-export function buildMessages({ text, name, user, date, time, snapshot = '', facts = [], examples = [], related = [], history = [] }) {
+export function buildMessages({ text, name, user, date, time, snapshot = '', facts = [], examples = [], related = [], history = [], extraCommands = [], persona = '' }) {
   const ctx = [
     facts.length ? `What you remember about them:\n${facts.map((f) => `- ${f}`).join('\n')}` : '',
     snapshot ? `Their Daybook right now:\n${snapshot}` : '',
     related.length ? `From their notes:\n${related.map((r) => `- ${r}`).join('\n')}` : '',
     examples.length ? `How they like things done (their phrase → commands):\n${examples.map((e) => `- "${e.phrase}" → ${JSON.stringify(e.commands)}`).join('\n')}` : '',
   ].filter(Boolean).join('\n\n');
-  const msgs = [{ role: 'system', content: `${systemPrompt({ name, user, date, time })}${ctx ? `\n\n${ctx}` : ''}` }];
+  const msgs = [{ role: 'system', content: `${systemPrompt({ name, user, date, time, extraCommands, persona })}${ctx ? `\n\n${ctx}` : ''}` }];
   for (const turn of history.slice(-6)) msgs.push({ role: turn.role, content: turn.content });
   msgs.push({ role: 'user', content: text });
   return msgs;
+}
+
+// A photo for a vision model: what it might be and what to do about it.
+export function visionMessages({ image, note = '', name = 'Jarvis', user = '', date, time }) {
+  const sys = `You are ${name}, ${user ? `${user}'s` : 'the user\'s'} personal assistant inside Daybook, their life tracker app. Now: ${date}, ${time}.
+They showed you a photo. Work out what it is and do what they'd obviously want, by writing Daybook commands:
+- a book cover → "add the book <title> by <author>"
+- a receipt or bill → "spent <total> on <shop or thing>"
+- a whiteboard, list or handwritten notes → one "add task …" per item, or "note: <text>" for prose
+- an event poster, invitation or ticket → "schedule <title> <day> at <time>"
+- a business card → "note: <name>, <role>, <phone>, <email>"
+- a film or show poster → "add <title> to my watch list"
+- anything else → no commands; just say what it is, briefly
+${COMMANDS}
+Never invent amounts, dates or names you can't read. Reply with JSON only:
+{"say":"<one or two short sentences: what it is and what you did>","do":["<command>"],"remember":[],"ask":""}`;
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: [{ type: 'text', text: note || 'What is this? Do what makes sense.' }, { type: 'image_url', image_url: { url: image } }] },
+  ];
 }
 
 // Tolerant JSON reading: small models wrap it in prose or code fences, or skip it altogether.
@@ -171,9 +192,25 @@ export function createJarvis(deps) {
     while (history.length > 8) history.shift();
   }
 
+  // Plugins (protocols, weather and places, Home Assistant…): { name, via, match(text) → args|null, run(args, text) → result, help }
+  const plugins = () => deps.plugins?.() || [];
+  function pluginFor(text) {
+    for (const p of plugins()) {
+      try { const m = p.match(text); if (m) return { p, m }; } catch { /* a broken plugin shouldn't stop Jarvis */ }
+    }
+    return null;
+  }
+
+  // What plugins get to call back into Jarvis with.
+  const api = { run: (c) => runCommand(c) };
+
   async function runCommand(cmd) {
     const say = cmd.match(/^say\s+[:"“]?(.+?)["”]?$/i);
     if (say) return { say: say[1], title: say[1], spoken: true };
+    const pl = pluginFor(cmd);
+    if (pl) {
+      try { return (await pl.p.run(pl.m, cmd, api)) || { say: 'Done.', title: 'Done' }; } catch (e) { return { say: 'That one failed.', title: `Couldn’t do “${cmd}”: ${e.message}`, miss: true }; }
+    }
     try { return (await deps.execute(cmd)) || { say: 'Done.', title: 'Done' }; } catch (e) { return { say: 'That one failed.', title: `Couldn’t do “${cmd}”: ${e.message}`, miss: true }; }
   }
 
@@ -202,7 +239,8 @@ export function createJarvis(deps) {
     };
   }
 
-  async function askAI(text, extra = []) {
+  // `onSay(text, done)`: called as the reply's "say" streams in, so it can be spoken early.
+  async function askAI(text, extra = [], { onSay = null } = {}) {
     const engines = deps.llm?.engines?.() || [];
     if (!engines.length) return null;
     const now = deps.now?.() || new Date();
@@ -211,12 +249,14 @@ export function createJarvis(deps) {
     const msgs = buildMessages({
       text, name: name(), user: deps.user?.() || '', date: today(), time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
       snapshot: deps.snapshot?.() || '', facts, examples, related: deps.related?.(text) || [], history,
+      extraCommands: plugins().map((p) => p.help).filter(Boolean), persona: deps.persona?.() || '',
     });
     msgs.push(...extra);
     let lastError = null;
     for (const engine of engines) {
       try {
-        const res = await deps.llm.chat(engine, msgs, { maxTokens: 350 });
+        const onDelta = onSay ? (full) => { const p = partialSay(full); if (p) onSay(p.text, p.done); } : null;
+        const res = await deps.llm.chat(engine, msgs, { maxTokens: 350, ...(onDelta ? { onDelta } : {}) });
         const reply = parseReply(res.text);
         mem.bump(today(), { [engine]: 1, tokens: res.tokens || 0 });
         if (reply) return { ...reply, engine, model: res.model, tokens: res.tokens || 0 };
@@ -260,13 +300,17 @@ export function createJarvis(deps) {
   function finish(res, text, via) {
     res.via = res.via || via;
     res.text = text;
+    // Personality for replies the rules wrote (the AI has its own voice).
+    if (deps.flavor && !['local', 'ollama', 'cloud', 'claude'].includes(res.via)) res = deps.flavor(res, { text }) || res;
+    try { deps.after?.(res, text); } catch { /* notes after a request never break it */ }
     if (res.undo) last = { res, text, at: Date.now() };
     remember('user', text);
     remember('assistant', JSON.stringify({ say: res.say, do: res.commands || [] }));
     return res;
   }
 
-  async function handle(input) {
+  // opts.onSay(text, done): the AI's reply as it streams in (see askAI).
+  async function handle(input, opts = {}) {
     const who = name().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const text = mem.normPhrase(input, name()) ? String(input).trim().replace(new RegExp(`^(?:(?:hey|ok|okay|hi)[\\s,]+)?${who}\\b[\\s,.!:-]*`, 'i'), '').trim() : '';
     if (!text) return { say: 'Yes?', title: 'I’m listening', ask: true, via: 'rules' };
@@ -280,7 +324,7 @@ export function createJarvis(deps) {
       const u = undo({ quiet: true });
       if (!(wrong[1] || '').trim()) { fixing = { text: lastText }; return { ...u, say: 'Sorry about that — undone. What did you mean?', title: 'Undone. What did you mean?', ask: true }; }
       fixing = { text: lastText };
-      return handle(wrong[1]);
+      return handle(wrong[1], opts);
     }
 
     // Queued for Claude (via the agent, on your Claude plan).
@@ -294,6 +338,15 @@ export function createJarvis(deps) {
       count('skill');
       return finish({ say: `Got it. When you say “${teach.phrase}”, I’ll ${teach.commands.length > 1 ? `do ${teach.commands.length} things` : `run “${teach.commands[0]}”`}.`,
         title: `Learned: “${teach.phrase}”`, lines: teach.commands.map((c) => `→ ${c}`), undo: () => mem.unlearn(s.id), learned: s }, text, 'skill');
+    }
+
+    // Protocols, weather and places, your home… (instant, no AI).
+    const pl = pluginFor(t);
+    if (pl) {
+      count('rules');
+      let res;
+      try { res = (await pl.p.run(pl.m, t, api)) || { say: 'Done.', title: 'Done' }; } catch (e) { res = { say: 'That didn’t work.', title: e.message, miss: true }; }
+      return finish(res, text, res.via || pl.p.via || 'rules');
     }
 
     // Memory.
@@ -380,7 +433,7 @@ export function createJarvis(deps) {
       title: 'That needs an AI brain', sub: why || 'Jarvis page → Brain: on-device, Ollama or a free cloud key', miss: true,
       alt: { label: 'Ask Claude instead', run: () => queueForClaude(t) } });
     let reply = null;
-    try { reply = await askAI(t); } catch (e) {
+    try { reply = await askAI(t, [], { onSay: opts.onSay }); } catch (e) {
       if (!confident) {
         count('rules');
         if (unanswerable) return finish(noBrain(`it’s unavailable right now (${e.message})`), text, 'rules');
@@ -414,6 +467,25 @@ export function createJarvis(deps) {
     res.model = reply.model;
     res.tokens = reply.tokens;
     return finish(res, text, reply.engine);
+  }
+
+  // A photo (a book cover, a receipt, a whiteboard, a poster…): a vision model looks, then acts.
+  async function handleImage(image, note = '') {
+    const label = `📷 ${note || 'Photo'}`;
+    if (!deps.llm?.vision) return { say: 'I can’t see photos here.', title: 'No vision', miss: true, via: 'rules' };
+    const now = deps.now?.() || new Date();
+    const msgs = visionMessages({ image, note, name: name(), user: deps.user?.() || '', date: today(), time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` });
+    let r;
+    try { r = await deps.llm.vision(msgs); } catch (e) {
+      return finish({ say: `I couldn’t look at it: ${e.message}`, title: 'Couldn’t read the photo',
+        sub: 'Photos need a vision model: a free cloud key (Groq, Gemini or OpenRouter) or an Ollama vision model. Jarvis page → Brain.', miss: true }, label, 'rules');
+    }
+    mem.bump(today(), { [r.engine]: 1, tokens: r.tokens || 0 });
+    const reply = parseReply(r.text);
+    if (!reply) return finish({ say: 'I couldn’t make sense of that one.', title: 'Unclear photo', miss: true }, label, r.engine);
+    const res = reply.do.length ? await runAll(reply.do, { lead: reply.say }) : { say: reply.say || 'I’m not sure what that is.', title: reply.say || 'Not sure', chat: true };
+    Object.assign(res, { model: r.model, tokens: r.tokens });
+    return finish(res, label, r.engine);
   }
 
   // A message you shared or pasted (WhatsApp, SMS, an email…): pull out what it asks of you.
@@ -482,7 +554,7 @@ export function createJarvis(deps) {
     return { say: 'Undone.', title: 'Undone', via: 'rules' };
   }
 
-  return { handle, handleShared, undo, undoResult, applyAnswer, queueForClaude, history, get fixing() { return fixing; } };
+  return { handle, handleShared, handleImage, undo, undoResult, applyAnswer, queueForClaude, run: runCommand, history, get fixing() { return fixing; } };
 }
 
 function pick(xs) { return xs[Math.floor(Math.random() * xs.length)]; }

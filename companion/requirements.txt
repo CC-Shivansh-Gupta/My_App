@@ -1,0 +1,10 @@
+# The link to Daybook (enough for --text mode)
+websockets>=13
+# Listening: wake word + Whisper, all on this computer
+numpy
+sounddevice
+soundfile
+openwakeword>=0.6
+faster-whisper>=1.0
+# A natural voice (optional; without it the system voice is used)
+piper-tts

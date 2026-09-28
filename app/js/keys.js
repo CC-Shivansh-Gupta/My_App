@@ -1,5 +1,5 @@
 // Your keys travel with sync, so you set them up once, not on every device.
-// The AI brain's cloud key, the Whisper/voice key and the Obsidian vault connection are
+// The AI brain's cloud key, the Whisper/voice key, the Obsidian vault connection and the Home Assistant token are
 // bundled, encrypted (AES-GCM, with a key derived from your sync token) and kept as a separate
 // file in your secret sync gist. A device that signs in picks them up on its first sync;
 // change a key anywhere and the others follow. Device-only choices (on-device model, Ollama,
@@ -10,9 +10,10 @@ const META = 'daybook.keys.meta';
 
 // localStorage key → the fields that travel (null = the whole object).
 const SHARED = [
-  ['jarvis', 'daybook.jarvis.v1', ['cloud', 'cloudKey', 'cloudModel', 'cloudBase', 'dailyCloud']],
+  ['jarvis', 'daybook.jarvis.v1', ['cloud', 'cloudKey', 'cloudModel', 'cloudBase', 'dailyCloud', 'cloudVision']],
   ['voice', 'daybook.voice.v1', ['provider', 'key']],
   ['vault', 'daybook.vault', null],
+  ['home', 'daybook.home.v1', ['url', 'token']],
 ];
 
 function ls() { try { return globalThis.localStorage || null; } catch { return null; } }
@@ -31,7 +32,7 @@ export function bundle() {
   return out;
 }
 
-const SECRET = { jarvis: 'cloudKey', voice: 'key', vault: 'token' };
+const SECRET = { jarvis: 'cloudKey', voice: 'key', vault: 'token', home: 'token' };
 const hasSecrets = (b) => Object.entries(SECRET).some(([s, f]) => b[s]?.[f]);
 
 // A device's first sync with keys on both sides: per section, keep whichever has the secret (this device first).

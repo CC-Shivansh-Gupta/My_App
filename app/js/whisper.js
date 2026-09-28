@@ -7,6 +7,8 @@
 // The key is kept in localStorage, outside the synced data; it travels to your other devices
 // in sync's separate encrypted keys file (keys.js).
 
+import * as A from './jarvis/audio.js';
+
 const CFG_KEY = 'daybook.voice.v1';
 
 export const PROVIDERS = {
@@ -128,6 +130,7 @@ export function record({ onFinal, onError, onEnd, onStatus, hint = '', lang = 'e
       let sum = 0;
       for (const v of buf) sum += v * v;
       const rms = Math.sqrt(sum / buf.length);
+      A.reportInput(Math.min(1, rms * 6));
       const now = Date.now();
       if (frames++ < 8) floor = Math.max(floor, rms); // the first ~130ms: background noise
       else if (rms > Math.max(0.015, floor * 2.5)) { if (!lastLoud) onSpeech(); lastLoud = now; }
@@ -174,13 +177,11 @@ export function stopSpeaking() {
   playing = null;
 }
 
-// Speaks with a cloud voice. Rejects on any failure so the caller can fall back to the device.
-// Resolves when it has finished speaking.
-export async function speakCloud(text, voice = cloudVoice()) {
+// Fetches a cloud voice clip as an AudioBuffer (so the next sentence can load while one plays).
+export async function fetchCloud(text, voice = cloudVoice()) {
   const p = provider();
   const ac = unlockAudio();
   if (!ac || !voice || !p.tts) throw new Error('unavailable');
-  stopSpeaking();
   const res = await fetch(`${p.base}/audio/speech`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg().key}`, 'Content-Type': 'application/json' },
@@ -188,13 +189,16 @@ export async function speakCloud(text, voice = cloudVoice()) {
       instructions: 'You are a friendly personal assistant. Speak warmly and naturally, at a relaxed, conversational pace.' }),
   });
   if (!res.ok) throw new Error(`TTS ${res.status}`);
-  const audio = await ac.decodeAudioData(await res.arrayBuffer());
-  const src = ac.createBufferSource();
-  src.buffer = audio;
-  src.connect(ac.destination);
-  playing = src;
-  await new Promise((resolve) => {
-    src.onended = () => { if (playing === src) playing = null; resolve(); };
-    src.start();
-  });
+  return ac.decodeAudioData(await res.arrayBuffer());
+}
+
+// Speaks with a cloud voice. Rejects on any failure so the caller can fall back to the device.
+// Resolves when it has finished speaking.
+export async function speakCloud(text, voice = cloudVoice()) {
+  stopSpeaking();
+  const audio = await fetchCloud(text, voice);
+  const clip = A.play(audio, unlockAudio());
+  playing = clip;
+  await clip.done;
+  if (playing === clip) playing = null;
 }

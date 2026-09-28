@@ -6,6 +6,7 @@ import * as store from '../store.js';
 import * as sync from '../sync.js';
 import * as vault from '../vault.js';
 import * as G from '../graph.js';
+import * as holo from '../hologram.js';
 import { parseBlocks, inline } from '../md.js';
 import * as E from '../editors.js';
 import { h, icon, section, toast, sheet, closeSheet, field } from '../ui.js';
@@ -86,6 +87,7 @@ export function render(ctx) {
         : 'Connect your Obsidian vault to see it here')),
     h('div', { class: 'btn-row' },
       st.connected ? h('button', { class: 'btn sm', disabled: st.loading, onclick: () => vault.refresh().then((c) => toast(c ? 'Vault updated' : 'Already up to date')).catch((e) => toast(e.message)) }, icon('sync', 16), st.loading ? 'Syncing…' : 'Sync') : null,
+      h('button', { class: 'btn sm', disabled: !ids.length, 'data-tip': 'Your map in 3D — with hand control', onclick: () => holo.open({ graph, ids, edges, onOpen: (n) => select(n.id, { center: true }) }) }, icon('orbit', 16), 'Hologram'),
       h('button', { class: 'btn sm', onclick: () => editNote() }, icon('plus', 16), 'Note')));
 
   const canvasCard = mapCanvas(ids, edges);

@@ -9,6 +9,7 @@
 
 import * as mem from './memory.js';
 import * as D from '../dates.js';
+import { sse, deltaText } from './stream.js';
 
 const CFG_KEY = 'daybook.jarvis.v1';
 const WEBLLM = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
@@ -193,17 +194,56 @@ export function modelLabel(id) {
 // ---- Chat --------------------------------------------------------------------------------------
 const estimate = (msgs, out) => Math.round((msgs.reduce((n, m) => n + m.content.length, 0) + out.length) / 4);
 
-// Returns { text, tokens, model }.
-export async function chat(which, messages, { maxTokens = 350 } = {}) {
+// Reads a streamed (Server-Sent Events) chat completion, calling onDelta(textSoFar) as it grows.
+export async function readStream(res, onDelta) {
+  // Some servers ignore "stream": true and answer in one piece.
+  if (!/event-stream/i.test(res.headers?.get?.('content-type') || 'text/event-stream')) {
+    const j = await res.json();
+    const text = j.choices?.[0]?.message?.content || '';
+    if (text) onDelta(text);
+    return { text, usage: j.usage || null };
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let text = ''; let usage = null;
+  const parser = sse((j) => {
+    const d = deltaText(j);
+    if (j.usage) usage = j.usage;
+    if (d) { text += d; onDelta(text); }
+  });
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    parser.push(dec.decode(value, { stream: true }));
+  }
+  parser.end();
+  return { text, usage };
+}
+
+// Returns { text, tokens, model }. With `onDelta`, the reply is streamed: onDelta(textSoFar) is
+// called as it arrives, so the first sentence can be spoken before the rest is written.
+export async function chat(which, messages, { maxTokens = 350, onDelta = null } = {}) {
   const c = cfg();
   if (which === 'local') {
     const e = await loadLocal(c.localModel);
     const qwen = /qwen3/i.test(c.localModel);
-    const r = await e.chat.completions.create({
+    const req = {
       messages, temperature: 0.3, max_tokens: maxTokens,
       response_format: { type: 'json_object' },
       ...(qwen ? { extra_body: { enable_thinking: false } } : {}),
-    });
+    };
+    if (onDelta) {
+      try {
+        let text = ''; let usage = null;
+        for await (const ch of await e.chat.completions.create({ ...req, stream: true, stream_options: { include_usage: true } })) {
+          const d = deltaText(ch);
+          if (ch.usage) usage = ch.usage;
+          if (d) { text += d; onDelta(text); }
+        }
+        return { text, tokens: usage?.total_tokens || estimate(messages, text), model: modelLabel(c.localModel) };
+      } catch (err) { console.warn('Streaming failed, asking again without it', err); }
+    }
+    const r = await e.chat.completions.create(req);
     const text = r.choices?.[0]?.message?.content || '';
     return { text, tokens: r.usage?.total_tokens || estimate(messages, text), model: modelLabel(c.localModel) };
   }
@@ -211,18 +251,22 @@ export async function chat(which, messages, { maxTokens = 350 } = {}) {
     const url = c.ollamaUrl.replace(/\/+$/, '');
     // Qwen3 models think out loud unless told not to — slow and pointless for this.
     const msgs = /qwen3/i.test(c.ollamaModel) ? messages.map((m, i) => (i === messages.length - 1 ? { ...m, content: `${m.content} /no_think` } : m)) : messages;
+    const body = { model: c.ollamaModel, messages: msgs, temperature: 0.3, max_tokens: maxTokens, response_format: { type: 'json_object' } };
+    const call = (b) => fetch(`${url}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     let res;
     try {
-      res = await fetch(`${url}/v1/chat/completions`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: c.ollamaModel, messages: msgs, temperature: 0.3, max_tokens: maxTokens, response_format: { type: 'json_object' } }),
-      });
+      res = await call(onDelta ? { ...body, stream: true } : body);
+      if (onDelta && res.status === 400) { onDelta = null; res = await call(body); }
     } catch {
       ollamaSeen = { at: Date.now(), ok: false };
       throw new Error('Couldn’t reach Ollama. Is it running, with OLLAMA_ORIGINS set?');
     }
     ollamaSeen = { at: Date.now(), ok: true };
     if (!res.ok) throw new Error(`Ollama ${res.status}${res.status === 404 ? ` — run “ollama pull ${c.ollamaModel}”` : ''}`);
+    if (onDelta && res.body) {
+      const { text, usage } = await readStream(res, onDelta);
+      return { text, tokens: usage?.total_tokens || estimate(messages, text), model: c.ollamaModel };
+    }
     const j = await res.json();
     const text = j.choices?.[0]?.message?.content || '';
     return { text, tokens: j.usage?.total_tokens || estimate(messages, text), model: c.ollamaModel };
@@ -233,16 +277,66 @@ export async function chat(which, messages, { maxTokens = 350 } = {}) {
     if (cloudLeft(c) <= 0) throw new Error('Daily cloud limit reached');
     const body = { model: p.model, messages, temperature: 0.3, max_tokens: maxTokens, response_format: { type: 'json_object' } };
     const call = (b) => fetch(`${p.base}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${p.key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
-    let res = await call(body);
-    if (res.status === 400) { delete body.response_format; res = await call(body); } // some providers don't do JSON mode
+    let res;
+    if (onDelta) {
+      // Several providers don't stream in JSON mode; the prompt asks for JSON anyway.
+      const { response_format: _, ...plain } = body;
+      res = await call({ ...plain, stream: true });
+      if (res.status === 400) onDelta = null;
+    }
+    if (!onDelta) {
+      res = await call(body);
+      if (res.status === 400) { delete body.response_format; res = await call(body); } // some providers don't do JSON mode
+    }
     if (res.status === 401 || res.status === 403) throw new Error('The API key was rejected');
     if (res.status === 429) throw new Error('Free-tier rate limit reached — try again in a minute');
     if (!res.ok) throw new Error(`AI ${res.status}`);
+    if (onDelta && res.body) {
+      const { text, usage } = await readStream(res, onDelta);
+      return { text, tokens: usage?.total_tokens || estimate(messages, text), model: p.model };
+    }
     const j = await res.json();
     const text = j.choices?.[0]?.message?.content || '';
     return { text, tokens: j.usage?.total_tokens || estimate(messages, text), model: p.model };
   }
   throw new Error(`Unknown engine ${which}`);
+}
+
+// ---- Seeing -------------------------------------------------------------------------------------
+// Vision models per cloud (free tiers), overridable with cloudVision; Ollama needs one pulled
+// (qwen2.5vl:3b, gemma3:4b, llava…) and set as ollamaVision.
+export const VISION = { groq: 'meta-llama/llama-4-scout-17b-16e-instruct', gemini: 'gemini-2.5-flash', openrouter: 'google/gemma-3-27b-it:free', custom: '' };
+
+export function visionEngines(c = cfg()) {
+  const cloud = cloudInfo(c);
+  const cloudModel = c.cloudVision || VISION[c.cloud] || '';
+  const out = [];
+  if (c.engine !== 'off' && c.ollamaOn && c.ollamaVision) out.push({ engine: 'ollama', model: c.ollamaVision });
+  if (c.engine !== 'off' && cloud.key && cloudModel && cloudLeft(c) > 0) out.push({ engine: 'cloud', model: cloudModel });
+  return out;
+}
+
+// messages: OpenAI-style, with an image_url part. Returns { text, tokens, model, engine }.
+export async function vision(messages) {
+  const c = cfg();
+  const list = visionEngines(c);
+  if (!list.length) throw new Error('no vision model set up (a free Groq, Gemini or OpenRouter key works)');
+  let last = null;
+  for (const { engine: which, model } of list) {
+    try {
+      const base = which === 'ollama' ? `${c.ollamaUrl.replace(/\/+$/, '')}/v1` : cloudInfo(c).base;
+      const headers = { 'Content-Type': 'application/json', ...(which === 'cloud' ? { Authorization: `Bearer ${cloudInfo(c).key}` } : {}) };
+      const res = await fetch(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 400 }) });
+      if (res.status === 401 || res.status === 403) throw new Error('the API key was rejected');
+      if (res.status === 404 || res.status === 400) throw new Error(`${model} can’t take photos here (${res.status}); set another vision model`);
+      if (res.status === 429) throw new Error('free-tier rate limit reached, try again in a minute');
+      if (!res.ok) throw new Error(`vision ${res.status}`);
+      const j = await res.json();
+      const text = j.choices?.[0]?.message?.content || '';
+      return { text, tokens: j.usage?.total_tokens || 800, model, engine: which };
+    } catch (e) { last = e; }
+  }
+  throw last;
 }
 
 // Warm the on-device model in the background once it has been downloaded, so the first

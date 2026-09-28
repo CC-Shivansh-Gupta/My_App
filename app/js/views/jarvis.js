@@ -11,6 +11,11 @@ import * as S from '../jarvis/speech.js';
 import * as wake from '../jarvis/wake.js';
 import * as panel from '../jarvis/panel.js';
 import * as asks from '../jarvis/asks.js';
+import * as A from '../jarvis/audio.js';
+import * as P from '../jarvis/protocols.js';
+import * as world from '../jarvis/world.js';
+import * as home from '../jarvis/home.js';
+import * as companion from '../jarvis/companion.js';
 import { h, icon, section, field, segmented, toast, empty } from '../ui.js';
 
 let unwatch = null;
@@ -37,8 +42,11 @@ export function render(ctx) {
       h('p', { class: 'muted' }, 'Your assistant. Everyday requests run on simple rules — instant and free. An AI model steps in only for the rest, and every phrase it works out is learned, so it needs the AI less over time.')),
     h('div', { class: 'card jv-hero' },
       h('div', null, h('p', { class: 'jv-hero-title' }, `${d.label}`), h('p', { class: 'muted small' }, d.detail)),
-      h('button', { class: 'btn primary', onclick: () => panel.open({ go: (r) => { location.hash = `#/${r}`; } }) }, icon('mic', 18), `Talk to ${name}`)),
-    claudeCard(ctx), brainCard(ctx), voiceCard(ctx), handsFreeCard(ctx), messagesCard(), memoryCard(), skillsCard(), usageCard());
+      h('div', { class: 'btn-row' },
+        h('a', { class: 'btn', href: '#/hud' }, icon('orbit', 18), 'HUD mode'),
+        h('button', { class: 'btn primary', onclick: () => panel.open({ go: (r) => { location.hash = `#/${r}`; } }) }, icon('mic', 18), `Talk to ${name}`))),
+    claudeCard(ctx), protocolsCard(ctx), brainCard(ctx), voiceCard(ctx), handsFreeCard(ctx), characterCard(ctx), senseCard(ctx), homeCard(ctx), companionCard(ctx),
+    messagesCard(), memoryCard(), skillsCard(), usageCard());
 }
 
 // ---- Claude (through the agent, on your Claude plan) ------------------------------------------------------
@@ -109,6 +117,7 @@ function localBox(ctx, c) {
 function ollamaBox(ctx, c) {
   const url = h('input', { value: c.ollamaUrl, placeholder: 'http://localhost:11434', autocomplete: 'off', spellcheck: 'false' });
   const model = h('input', { value: c.ollamaModel, placeholder: 'qwen3:4b', autocomplete: 'off', spellcheck: 'false' });
+  const ollamaVision = h('input', { value: c.ollamaVision || '', placeholder: 'qwen2.5vl:3b', autocomplete: 'off', spellcheck: 'false' });
   const origin = typeof location !== 'undefined' ? location.origin : '';
   return h('details', { class: 'jv-box', open: c.engine === 'ollama' || c.ollamaOn || undefined },
     h('summary', { class: 'jv-box-title' }, `🦙 Ollama on your computer — free, private${c.ollamaOn ? ' · on' : ''}`),
@@ -118,10 +127,11 @@ function ollamaBox(ctx, c) {
       h('li', null, 'Let this site talk to it — start it with ', h('code', null, `OLLAMA_ORIGINS=${origin} ollama serve`), ' (on a Mac app install: ', h('code', null, `launchctl setenv OLLAMA_ORIGINS "${origin}"`), ', then restart Ollama).'),
       h('li', null, 'Press Test. It works from this computer’s browser; other devices use the on-device or cloud brain.')),
     h('div', { class: 'row2' }, field('Address', url), field('Model', model)),
+    field('Vision model (optional)', ollamaVision, 'For photos, e.g. qwen2.5vl:3b or gemma3:4b (pull it first).'),
     ollama ? h('p', { class: ['small', ollama.ok ? '' : 'error'] }, ollama.ok ? `Connected. Models: ${ollama.models.join(', ') || 'none pulled yet'}` : `Not reachable${ollama.error ? ` (${ollama.error})` : ''}. Is Ollama running with OLLAMA_ORIGINS set?`) : null,
     h('div', { class: 'btn-row' },
       h('button', { class: 'btn primary sm', onclick: async () => {
-        llm.setCfg({ ollamaUrl: url.value.trim().replace(/\/+$/, ''), ollamaModel: model.value.trim() || 'qwen3:4b' });
+        llm.setCfg({ ollamaUrl: url.value.trim().replace(/\/+$/, ''), ollamaModel: model.value.trim() || 'qwen3:4b', ollamaVision: ollamaVision.value.trim() });
         ollama = await llm.checkOllama(url.value.trim());
         if (ollama.ok) llm.setCfg({ ollamaOn: true });
         ctx.rerender();
@@ -135,6 +145,7 @@ function cloudBox(ctx, c) {
   const model = h('input', { value: c.cloudModel, placeholder: llm.CLOUDS[c.cloud]?.model || 'model id', autocomplete: 'off', spellcheck: 'false' });
   const base = c.cloud === 'custom' ? h('input', { value: c.cloudBase, placeholder: 'https://…/v1', autocomplete: 'off', spellcheck: 'false' }) : null;
   const cap = h('input', { type: 'number', inputmode: 'numeric', min: 0, class: 'short', value: c.dailyCloud });
+  const vision = h('input', { value: c.cloudVision || '', placeholder: llm.VISION[c.cloud] || 'a vision model id', autocomplete: 'off', spellcheck: 'false' });
   const left = llm.cloudLeft(c);
   return h('details', { class: 'jv-box', open: c.engine === 'cloud' || Boolean(info.key) || undefined },
     h('summary', { class: 'jv-box-title' }, `☁️ Free cloud tier — works on every device${info.key ? ' · on' : ''}`),
@@ -143,8 +154,9 @@ function cloudBox(ctx, c) {
     field('API key', key, info.keyUrl ? h('a', { href: info.keyUrl, target: '_blank', rel: 'noopener' }, 'Get a free key') : null),
     base ? field('Base URL', base) : null,
     h('div', { class: 'row2' }, field('Model', model), field('Daily cap', cap, `${left} left today`)),
+    field('Vision model (photos)', vision, `For “show it a photo”. Default: ${llm.VISION[c.cloud] || 'none for this provider'}.`),
     h('button', { class: 'btn primary sm', onclick: () => {
-      llm.setCfg({ cloudKey: key.value.trim(), cloudModel: model.value.trim(), dailyCloud: Math.max(0, Number(cap.value) || 0), ...(base ? { cloudBase: base.value.trim() } : {}) });
+      llm.setCfg({ cloudKey: key.value.trim(), cloudModel: model.value.trim(), cloudVision: vision.value.trim(), dailyCloud: Math.max(0, Number(cap.value) || 0), ...(base ? { cloudBase: base.value.trim() } : {}) });
       toast('Saved — your other signed-in devices get it on their next sync');
       ctx.rerender();
     } }, 'Save'));
@@ -191,7 +203,154 @@ function handsFreeCard(ctx) {
         wake.supported()
           ? 'While Daybook is open on this device, say its name to talk — no tap needed. Uses the browser’s free recognizer, so the mic stays on while the app is open. Best in Chrome or Edge.'
           : 'This browser can’t listen continuously. Use Chrome or Edge on a laptop or Android for the wake word.'),
+      field('Interrupt by talking', segmented([[true, 'On'], [false, 'Off']], A.prefs().bargeIn, (v) => { A.setPrefs({ bargeIn: v }); ctx.rerender(); }, { small: true }),
+        'While it talks, just start speaking and it stops to listen. If it keeps cutting itself off (speakers loud, no headphones), switch this off.'),
+      field('Sounds', segmented([[true, 'On'], [false, 'Off']], A.prefs().sounds, (v) => { A.setPrefs({ sounds: v }); if (v) A.chime('done'); ctx.rerender(); }, { small: true }),
+        'Short cues: heard you, thinking, done, and a chime when it has something to tell you.'),
       wake.state.error ? h('p', { class: 'small error' }, wake.state.error) : null));
+}
+
+// ---- Character and speaking first ------------------------------------------------------------------------
+function characterCard(ctx) {
+  const style = store.pref('jarvisStyle', 'jarvis');
+  const addr = store.pref('jarvisAddress', 'name');
+  return section('Character', null,
+    h('div', { class: 'form' },
+      field('Personality', segmented([['jarvis', 'Classic Jarvis'], ['plain', 'Plain']], style, (v) => { store.setPref('jarvisStyle', v); ctx.rerender(); }, { small: true }),
+        'Classic: calm, dry British wit, says so when you’re about to do something unwise. Plain: short and straight.'),
+      field('It calls you', segmented([['name', 'Your name'], ['sir', 'Sir'], ['maam', 'Ma’am'], ['none', 'Nothing']], addr, (v) => { store.setPref('jarvisAddress', v); ctx.rerender(); }, { small: true })),
+      field('Speaks first', segmented([['off', 'Never'], ['quiet', 'Banner'], ['voice', 'Out loud']], store.pref('proactive', 'quiet'), (v) => { store.setPref('proactive', v); ctx.rerender(); }, { small: true }),
+        'While the app is open it watches for things worth saying: a meeting in 10 minutes, a streak about to break, the budget slipping, promises you made (“I’ll finish the report tonight”), rain on the way, Claude’s answers, and a “while you were away” after a few hours. In HUD mode it always speaks.')));
+}
+
+// ---- Protocols ------------------------------------------------------------------------------------------------
+let editing = null; // protocol being edited (or {} for a new one)
+
+function protocolsCard(ctx) {
+  const list = P.list();
+  const running = P.active();
+  const missing = P.TEMPLATES.filter((t) => !list.some((p) => p.name.toLowerCase() === t.name.toLowerCase()));
+  return section('Protocols', h('span', { class: 'count' }, list.length),
+    h('p', { class: 'small muted' }, 'One phrase, a whole plan. “Engage focus protocol” can start tracking deep work, put a 50-minute countdown on the HUD and come back when it’s done. Steps can wait, set timers, check conditions and run at a set time.'),
+    list.length ? h('ul', { class: 'list compact' }, list.map((p) => {
+      const live = running.runs.some((r) => r.name === p.name) || running.timers.some((x) => x.run === p.name);
+      return h('li', { class: 'row' },
+        h('span', { class: 'row-emoji' }, '🛡️'),
+        h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, `${p.name} protocol${live ? ' · running' : ''}`),
+          h('span', { class: 'row-sub' }, [p.phrases?.length ? `“${p.phrases.join('”, “')}”` : '', p.at ? `every ${daysLabel(p.days)} at ${D.fmtTime(p.at)}` : ''].filter(Boolean).join(' · ') || `Say “engage ${p.name.toLowerCase()} protocol”`)),
+        h('div', { class: 'btn-row' },
+          live ? h('button', { class: 'btn ghost sm', onclick: () => { P.cancel({ name: p.name }); ctx.rerender(); } }, 'Stop')
+            : h('button', { class: 'btn ghost sm', onclick: () => panel.open({ go: (r) => { location.hash = `#/${r}`; }, text: `engage ${p.name} protocol`, listen: false }) }, 'Engage'),
+          h('button', { class: 'btn ghost sm', onclick: () => { editing = p; ctx.rerender(); } }, 'Edit')));
+    })) : empty('No protocols yet. Start from one below.'),
+    missing.length ? h('div', { class: 'chips' }, h('span', { class: 'small muted' }, 'Add:'), missing.map((t) => h('button', { class: 'chip', onclick: () => { P.addTemplate(t.name); toast(`${t.name} protocol added`); } }, `+ ${t.name}`))) : null,
+    editing ? protocolEditor(ctx) : h('button', { class: 'btn ghost sm', onclick: () => { editing = {}; ctx.rerender(); } }, icon('plus', 16), 'New protocol'));
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function daysLabel(days = []) {
+  if (days.length === 7) return 'day';
+  if (days.join() === '1,2,3,4,5') return 'weekday';
+  if (days.join() === '0,6') return 'weekend day';
+  return days.map((d) => DAYS[d]).join(', ');
+}
+
+function protocolEditor(ctx) {
+  const p = editing;
+  const name = h('input', { value: p.name || '', placeholder: 'Focus', 'data-key': 'pr-name' });
+  const phrases = h('input', { value: (p.phrases || []).join(', '), placeholder: 'deep work time, focus mode', 'data-key': 'pr-phrases' });
+  const steps = h('textarea', { rows: 8, 'data-key': 'pr-steps', placeholder: 'track deep work\ntimer 50 min Focus\nsay Focus protocol engaged.\nwait 50 min\nstop tracking\nif habits left: say Still to do: {habits}.' }, p.steps || '');
+  steps.value = p.steps || '';
+  const at = h('input', { type: 'time', value: p.at || '', class: 'short' });
+  const days = new Set(p.days || [0, 1, 2, 3, 4, 5, 6]);
+  const dayBtns = h('div', { class: 'chips' }, DAYS.map((d, i) => {
+    const b = h('button', { type: 'button', class: ['chip', days.has(i) && 'on'], onclick: () => { if (days.has(i)) days.delete(i); else days.add(i); b.classList.toggle('on', days.has(i)); } }, d);
+    return b;
+  }));
+  const bad = P.parseSteps(steps.value).length;
+  return h('div', { class: 'jv-box form' },
+    h('p', { class: 'jv-box-title' }, p.id ? `Edit ${p.name} protocol` : 'New protocol'),
+    h('div', { class: 'row2' }, field('Name', name, 'Say “engage <name> protocol”.'), field('Also when I say', phrases, 'Comma-separated, optional.')),
+    field('Steps, one per line', steps, 'Any Daybook command · say … · wait 20 min · timer 50 min Focus · notify … · hud / hud off · if habits left: … (also: todos left, tasks overdue, over budget, events left, weekday, weekend, before 18:00, after 18:00, tracking, raining, at gym, home). {name}, {habits}, {todos}, {next} fill in.'),
+    h('div', { class: 'row2' }, field('Run by itself at (optional)', at, 'While the app is open on this device.'), field('On', dayBtns)),
+    h('div', { class: 'btn-row' },
+      h('button', { class: 'btn primary sm', onclick: () => {
+        const saved = P.save({ id: p.id, name: name.value, phrases: phrases.value, steps: steps.value, at: at.value, days: [...days].sort() });
+        if (!saved) { toast('Give it a name'); return; }
+        editing = null; toast(`${saved.name} protocol saved${bad ? '' : ' (it has no steps yet)'}`); ctx.rerender();
+      } }, 'Save'),
+      h('button', { class: 'btn ghost sm', onclick: () => { editing = null; ctx.rerender(); } }, 'Cancel'),
+      p.id ? h('button', { class: 'btn ghost sm danger', onclick: () => { P.remove(p.id); editing = null; ctx.rerender(); } }, 'Delete') : null));
+}
+
+// ---- Senses: weather and places --------------------------------------------------------------------------------
+function senseCard(ctx) {
+  const c = world.cfg();
+  const city = h('input', { value: c.auto ? '' : c.label, placeholder: 'or a city, e.g. Bengaluru', class: 'short' });
+  const places = world.places();
+  const w = world.cached();
+  return section('Weather & places', h('span', { class: ['badge', c.on ? 'good' : ''] }, c.on ? 'On' : 'Off'),
+    h('p', { class: 'small muted' }, 'Free weather from Open-Meteo (no key, no account): “what’s the weather”, “do I need an umbrella”, rain warnings, and the HUD. Name places (“remember this place as the gym”) and it notices when you arrive. Location is only read while the app is open.'),
+    w ? h('p', { class: 'small' }, `${w.emoji} ${world.describe(w, { place: c.auto ? '' : c.label })}`) : null,
+    h('div', { class: 'btn-row' },
+      h('button', { class: 'btn primary sm', onclick: async () => {
+        try { world.setCfg({ auto: true, on: true }); await world.locate(); await world.weather({ force: true }); toast('Weather on, using your location'); } catch (e) { toast(e.message || 'Location blocked'); }
+        ctx.rerender();
+      } }, '📍 Use my location'),
+      city, h('button', { class: 'btn ghost sm', onclick: async () => {
+        if (!city.value.trim()) return;
+        try { const g = await world.geocode(city.value.trim()); world.setCfg({ auto: false, on: true, lat: g.lat, lon: g.lon, label: g.label, cache: null }); await world.weather({ force: true }); toast(`Weather for ${g.label}`); } catch (e) { toast(e.message); }
+        ctx.rerender();
+      } }, 'Set city'),
+      c.on ? h('button', { class: 'btn ghost sm', onclick: () => { world.setCfg({ on: false, cache: null }); ctx.rerender(); } }, 'Turn off') : null),
+    places.length ? h('ul', { class: 'list compact' }, places.map((pl) => h('li', { class: 'row' }, h('span', { class: 'row-emoji' }, '📍'),
+      h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, pl.name), h('span', { class: 'row-sub' }, `${pl.lat}, ${pl.lon} · within ${pl.r || 150} m`)),
+      h('button', { class: 'icon-btn sm', 'aria-label': 'Forget', onclick: () => world.forgetPlace(pl.name) }, icon('trash', 18))))) : null);
+}
+
+// ---- Home Assistant -------------------------------------------------------------------------------------------------
+let homeTest = null;
+function homeCard(ctx) {
+  const c = home.cfg();
+  const url = h('input', { value: c.url, placeholder: 'https://yourhome.ui.nabu.casa', autocomplete: 'off', spellcheck: 'false' });
+  const token = h('input', { type: 'password', value: c.token, placeholder: 'Long-lived access token', autocomplete: 'off' });
+  const origin = typeof location !== 'undefined' ? location.origin : '';
+  return section('Your home', h('span', { class: ['badge', home.connected() ? 'good' : ''] }, home.connected() ? 'Home Assistant' : 'Not connected'),
+    h('p', { class: 'small muted' }, 'Control lights, switches, thermostats, scenes, locks and blinds through Home Assistant: “lights to 30%”, “turn off the kitchen lights”, “set the thermostat to 22”, “scene movie night”, “is the garage open?”. Protocols can use them too: Good night turns the lights off when your home is connected.'),
+    h('details', { class: 'jv-box', open: !home.connected() || undefined },
+      h('summary', { class: 'jv-box-title' }, 'Set up'),
+      h('ol', { class: 'small steps' },
+        h('li', null, 'Home Assistant must be reachable over HTTPS (Nabu Casa, or your own proxy). A page served over HTTPS can’t call http://homeassistant.local.'),
+        h('li', null, 'Allow this site in configuration.yaml: ', h('code', null, `http:\n  cors_allowed_origins:\n    - ${origin}`), ', then restart Home Assistant.'),
+        h('li', null, 'Profile → Security → Long-lived access tokens → Create token. Paste it below. It travels with sync, encrypted.')),
+      h('div', { class: 'row2' }, field('Address', url), field('Token', token)),
+      homeTest ? h('p', { class: ['small', homeTest.error ? 'error' : ''] }, homeTest.error || `Connected: ${homeTest.total} entities (${homeTest.lights} lights, ${homeTest.switches} switches, ${homeTest.climate} thermostats, ${homeTest.scenes} scenes, ${homeTest.locks} locks).`) : null,
+      h('div', { class: 'btn-row' },
+        h('button', { class: 'btn primary sm', onclick: async () => {
+          home.setCfg({ url: url.value.trim().replace(/\/+$/, ''), token: token.value.trim() });
+          try { homeTest = await home.test(); } catch (e) { homeTest = { error: e.message }; }
+          ctx.rerender();
+        } }, 'Save & test'),
+        home.connected() ? h('button', { class: 'btn ghost sm', onclick: () => { home.setCfg({ url: '', token: '' }); homeTest = null; ctx.rerender(); } }, 'Disconnect') : null)));
+}
+
+// ---- Laptop companion ----------------------------------------------------------------------------------------------
+let offCompanion = null;
+function companionCard(ctx) {
+  if (!offCompanion) offCompanion = companion.onChange(() => { if (location.hash.startsWith('#/jarvis')) ctx.rerender(); });
+  const c = companion.cfg();
+  const st = companion.state;
+  const label = { off: 'Off', connecting: 'Connecting…', connected: 'Connected', waiting: 'Waiting for it' }[st.status] || st.status;
+  return section('Laptop companion', h('span', { class: ['badge', st.status === 'connected' ? 'good' : ''] }, label),
+    h('p', { class: 'small muted' }, 'The browser can only listen while Daybook is open. The companion is a small program for your computer that listens for “Hey Jarvis” all the time — with the tab in the background or the screen off — using free open-weights models (openWakeWord, Whisper, Piper) on the computer itself. It sends what you said to this tab and speaks the answer. Nothing leaves your computer.'),
+    h('ol', { class: 'small steps' },
+      h('li', null, 'Install Python 3.10+, then: ', h('code', null, 'pip install -r companion/requirements.txt'), ' (from this repo).'),
+      h('li', null, 'Run ', h('code', null, 'python companion/jarvis_companion.py'), '. For a British voice add ', h('code', null, '--piper-voice en_GB-alan-medium.onnx'), ' (download from the Piper voices page).'),
+      h('li', null, 'Switch it on here, on this computer. Chrome may ask to allow access to local devices: allow it.')),
+    h('div', { class: 'form' },
+      field('Companion on this device', segmented([[false, 'Off'], [true, 'On']], c.on, (v) => { companion.setCfg({ on: v }); ctx.rerender(); }, { small: true })),
+      st.error && st.status !== 'connected' && c.on ? h('p', { class: 'small muted' }, st.error) : null),
+    h('p', { class: 'small muted' }, 'On iPhone: make a Shortcut “Jarvis” → Dictate Text → Open URL ', h('code', null, `${typeof location !== 'undefined' ? location.origin + location.pathname : ''}?ask=`), ' + the dictated text. Then “Hey Siri, Jarvis”.'));
 }
 
 // ---- Messages (WhatsApp and others) ------------------------------------------------------------------
