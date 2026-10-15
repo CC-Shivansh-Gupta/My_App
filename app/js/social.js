@@ -11,6 +11,7 @@
 import * as store from './store.js';
 import * as D from './dates.js';
 import * as X from './gamify.js';
+import * as M from './models.js';
 
 const CACHE_KEY = 'daybook.social.cache.v1';
 const SEEN_KEY = 'daybook.social.seen.v1';
@@ -136,7 +137,7 @@ export function buildProfile() {
     }
     if (Object.values(row).some(Boolean)) daily[d] = row;
   }
-  const scheduled = Object.values(habitsById).filter((hb) => !hb.days?.length || hb.days.includes(D.weekday(t)));
+  const scheduled = Object.values(habitsById).filter((hb) => M.scheduledOn(hb, t));
   const unlocked = X.achievements(s).filter((a) => a.done);
   const profile = {
     id: m.id, name: m.name || 'Friend', emoji: m.emoji || '🙂', updatedAt: Date.now(),

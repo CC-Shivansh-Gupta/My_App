@@ -4,7 +4,7 @@ import * as store from '../store.js';
 import * as D from '../dates.js';
 import * as M from '../models.js';
 import * as E from '../editors.js';
-import { h, icon, section, checkbox, quickInput, empty, money, toast, haptic } from '../ui.js';
+import { h, icon, section, checkbox, quickInput, empty, money, toast } from '../ui.js';
 import { topNews } from './news.js';
 import * as gym from './gym.js';
 import * as goals from './goals.js';
@@ -13,6 +13,8 @@ import * as routine from './routine.js';
 import * as screen from './screen.js';
 import { levelChip } from './stats.js';
 import * as agent from './agent.js';
+import * as HB from './habits.js';
+import { colorOf, fmtNum } from './habit-form.js';
 
 let day = null; // date being viewed; null = follow the real "today"
 
@@ -108,20 +110,25 @@ export function taskMeta(t, ref = D.today()) {
 }
 
 function habitsCard(date) {
-  const list = M.habits().filter((hb) => M.scheduledOn(hb, date) || M.isDone(hb.id, date));
-  const done = list.filter((hb) => M.isDone(hb.id, date)).length;
+  const list = M.habits().filter((hb) => M.scheduledOn(hb, date) || M.isDone(hb.id, date) || M.isSkipped(hb.id, date));
+  const due = list.filter((hb) => !M.isSkipped(hb.id, date));
+  const done = due.filter((hb) => M.isDone(hb.id, date)).length;
   return section('Habits',
-    list.length ? h('span', { class: 'count' }, `${done}/${list.length}`) : null,
+    list.length ? h('a', { class: 'count', href: '#/habits' }, `${done}/${due.length}`) : null,
     list.length
       ? h('div', { class: 'habit-chips' }, list.map((hb) => {
           const on = M.isDone(hb.id, date);
+          const skipped = M.isSkipped(hb.id, date);
           const st = M.streak(hb, date);
-          return h('button', {
-            class: ['habit-chip', on && 'on'], 'aria-pressed': String(on),
-            onclick: () => { if (!on) haptic(); M.setDone(hb.id, date, !on); },
+          const amount = M.isCount(hb) && !on ? `${fmtNum(M.valueOn(hb, date))}/${fmtNum(hb.target)}` : null;
+          const chip = h('button', {
+            class: ['habit-chip', on && 'on', skipped && 'skipped'], 'aria-pressed': String(on), style: `--hc:${colorOf(hb)}`,
+            onclick: () => HB.tick(hb, date),
           }, h('span', { class: 'habit-emoji' }, hb.emoji || '✅'),
           h('span', { class: 'habit-name' }, hb.name),
-          st > 1 ? h('span', { class: 'habit-streak', 'data-tip': `${st}-day streak` }, `🔥${st}`) : null);
+          amount ? h('span', { class: 'habit-streak' }, amount) : null,
+          skipped ? h('span', { class: 'habit-streak' }, 'skipped') : st > 1 ? h('span', { class: 'habit-streak', 'data-tip': `${st}-${M.streakUnit(hb)} streak` }, `🔥${st}`) : null);
+          return HB.holdable(chip, () => HB.daySheet(hb, date));
         }))
       : h('div', null, empty('No habits yet.'),
           h('button', { class: 'btn ghost sm', onclick: () => E.editHabit() }, icon('plus', 16), 'Add a habit')));
