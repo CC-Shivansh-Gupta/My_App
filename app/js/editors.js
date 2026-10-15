@@ -303,40 +303,7 @@ export function editReading(r = {}) {
 }
 
 // ---- Habit ----------------------------------------------------------------------------------
-const EMOJIS = ['💧', '🏃', '📖', '🧘', '💪', '🥗', '😴', '✍️', '🎸', '🧠', '🚭', '🌅', '📵', '🦷', '💊', '🙏'];
-
-export function editHabit(hb = {}) {
-  const isNew = !hb.id;
-  const name = input(hb.name, { placeholder: 'e.g. Drink 2L water' });
-  let emoji = hb.emoji || '✅';
-  const emojiRow = h('div', { class: 'chips' });
-  const drawEmoji = () => emojiRow.replaceChildren(...EMOJIS.map((e) => h('button', {
-    type: 'button', class: ['chip', 'emoji', e === emoji && 'on'], onclick: () => { emoji = e; drawEmoji(); },
-  }, e)));
-  drawEmoji();
-  let days = hb.days && hb.days.length ? [...hb.days] : [0, 1, 2, 3, 4, 5, 6];
-  const dayRow = h('div', { class: 'chips' });
-  const order = store.pref('weekStart', 1) === 1 ? [1, 2, 3, 4, 5, 6, 0] : [0, 1, 2, 3, 4, 5, 6];
-  const drawDays = () => dayRow.replaceChildren(...order.map((d) => h('button', {
-    type: 'button', class: ['chip', days.includes(d) && 'on'],
-    onclick: () => { days = days.includes(d) ? days.filter((x) => x !== d) : [...days, d]; if (!days.length) days = [d]; drawDays(); },
-  }, D.DAY_NAMES[d].slice(0, 3))));
-  drawDays();
-  const save = () => {
-    if (!name.value.trim()) { name.focus(); return; }
-    store.put('habits', { ...hb, name: name.value.trim(), emoji, days: days.sort() });
-    closeSheet();
-  };
-  const actions = [h('button', { class: 'btn primary', onclick: save }, 'Save')];
-  if (!isNew) {
-    actions.unshift(h('button', { class: 'btn ghost', onclick: () => {
-      store.put('habits', { ...hb, archived: true }); closeSheet();
-      toast('Habit archived', { label: 'Undo', run: () => store.put('habits', { ...hb, archived: false }) });
-    } }, 'Archive'));
-  }
-  sheet(isNew ? 'New habit' : 'Edit habit', h('div', { class: 'form' },
-    name, field('Icon', emojiRow), field('Which days?', dayRow)), { actions });
-}
+export { editHabit } from './views/habit-form.js';
 
 // ---- Expense --------------------------------------------------------------------------------
 export function editExpense(e = {}) {

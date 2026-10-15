@@ -6,6 +6,7 @@
 
 import * as store from './store.js';
 import * as D from './dates.js';
+import * as M from './models.js';
 
 export const ATTRS = {
   str: { name: 'Strength', emoji: '💪', hint: 'Workouts, PRs, exercise habits' },
@@ -124,15 +125,19 @@ function penalties(push) {
   const earliest = D.addDays(t, -LOOKBACK);
   const neg = (date, xp, attr, kind) => { if (mult && date && date >= earliest && date < t) push(date, -Math.max(1, Math.round(xp * mult)), attr, kind); };
 
-  // Missed habits (scheduled days you didn't tick, from the day the habit started).
-  const done = new Set(store.all('habitLogs').filter((l) => l.done).map((l) => `${l.habit}|${l.date}`));
-  for (const hb of store.all('habits')) {
-    if (hb.archived) continue;
-    let start = D.toStr(new Date(hb.createdAt || Date.now()));
-    for (const l of store.all('habitLogs')) if (l.habit === hb.id && l.done && l.date < start) start = l.date;
-    const days = hb.days && hb.days.length ? hb.days : [0, 1, 2, 3, 4, 5, 6];
+  // Missed habits (scheduled days you didn't tick, from the day the habit started; skipped days are excused).
+  // A weekly habit is judged when its week ends: each day short of the quota counts as a miss.
+  for (const hb of M.habits()) {
+    const start = M.habitStart(hb);
+    if (M.isWeekly(hb)) {
+      for (let w = M.weekOf(start < earliest ? earliest : start); D.addDays(w, 6) < t; w = D.addDays(w, 7)) {
+        const short = M.weekQuota(hb, w) - M.weekCount(hb, w);
+        if (short > 0) neg(D.addDays(w, 6), 3 * short, 'dis', 'habitMiss');
+      }
+      continue;
+    }
     for (let d = start < earliest ? earliest : start; d < t; d = D.addDays(d, 1)) {
-      if (days.includes(D.weekday(d)) && !done.has(`${hb.id}|${d}`)) neg(d, 3, 'dis', 'habitMiss');
+      if (M.scheduledOn(hb, d) && !M.isDone(hb.id, d)) neg(d, 3, 'dis', 'habitMiss');
     }
   }
   // Tasks that went past their due date (once each, the day after it was due).
@@ -217,7 +222,7 @@ function seeded(str) {
 }
 
 export function quests(date = D.today()) {
-  const habitsToday = store.all('habits').filter((hb) => !hb.archived && (!hb.days?.length || hb.days.includes(D.weekday(date))));
+  const habitsToday = M.habits().filter((hb) => M.scheduledOn(hb, date));
   const logsToday = new Set(store.all('habitLogs').filter((l) => l.date === date && l.done).map((l) => l.habit));
   const todos = store.all('todos').filter((x) => x.date === date);
   const doneTodos = store.all('todos').filter((x) => x.done && (dayOf(x.doneAt) || x.date) === date).length;
@@ -299,11 +304,14 @@ function bestCleanAll() {
   return best;
 }
 
+// Longest run of days in a row on any habit (rest days and skipped days don't break it).
 function bestHabitStreak() {
   const byHabit = {};
   for (const l of store.all('habitLogs')) if (l.done) (byHabit[l.habit] ||= []).push(l.date);
   let best = 0;
-  for (const dates of Object.values(byHabit)) {
+  for (const [id, dates] of Object.entries(byHabit)) {
+    const hb = store.get('habits', id);
+    if (hb && !M.isWeekly(hb)) { best = Math.max(best, M.bestStreak(hb)); continue; }
     dates.sort();
     let run = 0; let prev = null;
     for (const d of dates) { run = prev && D.addDays(prev, 1) === d ? run + 1 : 1; best = Math.max(best, run); prev = d; }
@@ -320,7 +328,7 @@ function perfectDays() {
   for (const t of store.all('todos')) (todosByDay[t.date] ||= []).push(t);
   let n = 0;
   for (const [date, set] of Object.entries(logs)) {
-    const sched = habits.filter((hb) => (!hb.days?.length || hb.days.includes(D.weekday(date))) && D.toStr(new Date(hb.createdAt || 0)) <= date);
+    const sched = habits.filter((hb) => M.scheduledOn(hb, date) && D.toStr(new Date(hb.createdAt || 0)) <= date);
     const todos = todosByDay[date] || [];
     if (sched.length && sched.every((hb) => set.has(hb.id)) && todos.length && todos.every((t) => t.done)) n++;
   }

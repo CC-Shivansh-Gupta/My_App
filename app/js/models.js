@@ -72,9 +72,20 @@ export function toggleTask(t, done) {
 }
 
 // ---- Habits -------------------------------------------------------------------------------
+// A habit: { name, emoji, color, why, when: 'morning'|'afternoon'|'evening'|'any',
+//   kind: 'check' (just do it) or 'count' (hit `target` `unit`s, e.g. 8 glasses),
+//   freq: 'days' (on the weekdays in `days`) or 'week' (any `perWeek` days a week) }.
+// A day's log: { id: 'habit|date', habit, date, done, value, skip, note }.
+// Older habits (name, emoji, days) read as yes/no habits on set days, so nothing needs migrating.
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
 export function habits() {
   return store.all('habits').filter((x) => !x.archived).sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
 }
+
+export const isCount = (hb) => hb?.kind === 'count' && Number(hb.target) > 0;
+export const isWeekly = (hb) => hb?.freq === 'week' && Number(hb.perWeek) > 0;
+export const planDays = (hb) => (hb.days && hb.days.length ? hb.days : ALL_DAYS);
 
 // A fitting emoji for a new habit's name.
 const HABIT_EMOJI = [[/read|book|pages/i, '📖'], [/run|jog|walk|steps/i, '🏃'], [/gym|workout|exercis|lift|push-?ups?|train/i, '💪'],
@@ -86,24 +97,92 @@ export function habitEmoji(name) {
   return HABIT_EMOJI.find(([re]) => re.test(name || ''))?.[1] || '✅';
 }
 
-export function addHabit({ name, emoji, days }) {
+export function addHabit({ name, emoji, days, ...rest }) {
   const last = habits().pop();
-  return store.put('habits', { name, emoji: emoji || habitEmoji(name), days: days && days.length ? days : [0, 1, 2, 3, 4, 5, 6], order: (last?.order ?? last?.createdAt ?? 0) + 1 });
+  return store.put('habits', { ...rest, name, emoji: emoji || habitEmoji(name), days: days && days.length ? days : ALL_DAYS, order: (last?.order ?? last?.createdAt ?? 0) + 1 });
 }
 
 const logId = (habitId, date) => `${habitId}|${date}`;
 
+export function habitLog(habitId, date) {
+  return store.get('habitLogs', logId(habitId, date));
+}
+
 export function isDone(habitId, date) {
-  return Boolean(store.get('habitLogs', logId(habitId, date))?.done);
+  return Boolean(habitLog(habitId, date)?.done);
+}
+
+export function isSkipped(habitId, date) {
+  const l = habitLog(habitId, date);
+  return Boolean(l?.skip && !l.done);
+}
+
+// How much was done that day: the count for a count habit, otherwise 1 or 0.
+export function valueOn(hb, date) {
+  const l = habitLog(hb.id, date);
+  if (!l) return 0;
+  if (isCount(hb)) return Number(l.value) || (l.done ? Number(hb.target) : 0);
+  return l.done ? 1 : 0;
+}
+
+function writeLog(habitId, date, fields) {
+  return store.put('habitLogs', { id: logId(habitId, date), habit: habitId, date, done: false, value: 0, skip: false, ...fields });
 }
 
 export function setDone(habitId, date, done) {
-  store.put('habitLogs', { id: logId(habitId, date), habit: habitId, date, done });
+  const hb = store.get('habits', habitId);
+  return writeLog(habitId, date, { done, value: done && isCount(hb) ? Number(hb.target) : 0 });
 }
 
+export function setValue(hb, date, value) {
+  const v = Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
+  return writeLog(hb.id, date, { value: v, done: v >= Number(hb.target) });
+}
+
+// A skipped day (sick, travelling…) is excused: it neither counts nor breaks a streak.
+export function setSkip(habitId, date, skip) {
+  return writeLog(habitId, date, { skip });
+}
+
+export function setNote(habitId, date, note) {
+  const prev = habitLog(habitId, date);
+  return store.put('habitLogs', { done: false, ...prev, id: logId(habitId, date), habit: habitId, date, note });
+}
+
+// First day of the week holding `date` (Settings → week starts on).
+export function weekOf(date) {
+  return D.addDays(date, -((D.weekday(date) - store.pref('weekStart', 1) + 7) % 7));
+}
+
+// Days done in the week holding `date`; with `before`, only the days before it.
+export function weekCount(hb, date, { before = null } = {}) {
+  const ws = weekOf(date);
+  let n = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = D.addDays(ws, i);
+    if (before && d >= before) break;
+    if (isDone(hb.id, d)) n++;
+  }
+  return n;
+}
+
+// How many days a weekly habit asks for in a given week: fewer in the week it started or for skipped days.
+export function weekQuota(hb, date) {
+  const ws = weekOf(date);
+  const start = habitStart(hb);
+  let open = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = D.addDays(ws, i);
+    if (d >= start && !isSkipped(hb.id, d)) open++;
+  }
+  return Math.min(Number(hb.perWeek), open);
+}
+
+// Is it due that day? A weekly habit is due every day until the week's quota is met; a skipped day never is.
 export function scheduledOn(habit, date) {
-  const days = habit.days && habit.days.length ? habit.days : [0, 1, 2, 3, 4, 5, 6];
-  return days.includes(D.weekday(date));
+  if (isSkipped(habit.id, date)) return false;
+  if (isWeekly(habit)) return isDone(habit.id, date) || weekCount(habit, date, { before: date }) < Number(habit.perWeek);
+  return planDays(habit).includes(D.weekday(date));
 }
 
 // First day the habit counts from: its creation, or an earlier back-filled tick.
@@ -113,7 +192,23 @@ export function habitStart(habit) {
   return start;
 }
 
+// Weeks in a row that met their quota; this week joins once it's met, and doesn't break it before then.
+function weekStreak(hb, date) {
+  const start = habitStart(hb);
+  let w = weekOf(date);
+  let n = 0;
+  if (weekCount(hb, w) < weekQuota(hb, w)) w = D.addDays(w, -7);
+  for (; D.addDays(w, 6) >= start; w = D.addDays(w, -7)) {
+    const q = weekQuota(hb, w);
+    if (q <= 0) continue;
+    if (weekCount(hb, w) >= q) n++;
+    else break;
+  }
+  return n;
+}
+
 export function streak(habit, date = D.today()) {
+  if (isWeekly(habit)) return weekStreak(habit, date);
   // Consecutive scheduled days done, ending today (today may still be pending).
   const start = habitStart(habit);
   let n = 0;
@@ -127,9 +222,47 @@ export function streak(habit, date = D.today()) {
   return n;
 }
 
+export const streakUnit = (hb) => (isWeekly(hb) ? 'week' : 'day');
+
+// Every streak the habit has had: [{ from, to, n }], oldest first (n in days, or weeks for weekly habits).
+export function streakRuns(hb, end = D.today()) {
+  const runs = [];
+  let cur = null;
+  const start = habitStart(hb);
+  const close = () => { if (cur) runs.push(cur); cur = null; };
+  if (isWeekly(hb)) {
+    for (let w = weekOf(start); w <= end; w = D.addDays(w, 7)) {
+      const q = weekQuota(hb, w);
+      if (q <= 0) continue;
+      const last = D.addDays(w, 6) < end ? D.addDays(w, 6) : end;
+      if (weekCount(hb, w) >= q) { if (cur) { cur.to = last; cur.n++; } else cur = { from: w < start ? start : w, to: last, n: 1 }; } else if (weekOf(end) !== w) close();
+    }
+  } else {
+    for (let d = start; d <= end; d = D.addDays(d, 1)) {
+      if (isDone(hb.id, d)) { if (cur) { cur.to = d; cur.n++; } else cur = { from: d, to: d, n: 1 }; } else if (d !== end && scheduledOn(hb, d)) close();
+    }
+  }
+  close();
+  return runs;
+}
+
+export function bestStreak(hb, end = D.today()) {
+  return streakRuns(hb, end).reduce((m, r) => Math.max(m, r.n), 0);
+}
+
 export function completionRate(habit, days = 30, end = D.today()) {
   const start = habitStart(habit);
   let sched = 0; let done = 0;
+  if (isWeekly(habit)) {
+    const from = D.addDays(end, -(days - 1));
+    for (let w = weekOf(end); D.addDays(w, 6) >= from && D.addDays(w, 6) >= start; w = D.addDays(w, -7)) {
+      const q = weekQuota(habit, w);
+      const c = Math.min(weekCount(habit, w), q);
+      if (w === weekOf(end) && c < q) { sched += c; done += c; continue; } // this week is still open
+      sched += q; done += c;
+    }
+    return sched ? done / sched : null;
+  }
   for (let i = 0; i < days; i++) {
     const d = D.addDays(end, -i);
     if (d < start) break;
@@ -139,6 +272,79 @@ export function completionRate(habit, days = 30, end = D.today()) {
     if (isDone(habit.id, d)) done++;
   }
   return sched ? done / sched : null;
+}
+
+// Habit strength, 0–1, like Loop Habit Tracker's score: each planned day nudges it toward 1 (done)
+// or 0 (missed), so one missed day dents it instead of wiping out weeks of work. Half-life: 13 planned
+// days, or 3 weeks for weekly habits. Count habits get partial credit. Returns [{ date, score }] per day.
+const DAY_KEEP = 0.5 ** (1 / 13);
+const WEEK_KEEP = 0.5 ** (1 / 3);
+export function strengthSeries(hb, end = D.today()) {
+  const out = [];
+  const start = habitStart(hb);
+  let score = 0;
+  for (let d = start; d <= end; d = D.addDays(d, 1)) {
+    if (isWeekly(hb)) {
+      const lastOfWeek = D.addDays(weekOf(d), 6) === d;
+      if (lastOfWeek || d === end) {
+        const q = weekQuota(hb, d);
+        const c = Math.min(weekCount(hb, d), q);
+        if (q > 0 && (lastOfWeek || c >= q)) score = score * WEEK_KEEP + (c / q) * (1 - WEEK_KEEP);
+      }
+    } else {
+      const done = isDone(hb.id, d);
+      const credit = isCount(hb) ? Math.min(1, valueOn(hb, d) / Number(hb.target)) : done ? 1 : 0;
+      const planned = planDays(hb).includes(D.weekday(d)) && !isSkipped(hb.id, d);
+      if ((planned || done) && (d !== end || done)) score = score * DAY_KEEP + credit * (1 - DAY_KEEP);
+    }
+    out.push({ date: d, score });
+  }
+  return out;
+}
+
+export function strength(hb, end = D.today()) {
+  const s = strengthSeries(hb, end);
+  return s.length ? s[s.length - 1].score : 0;
+}
+
+// Totals per week or month, newest last: days done, or the amount for count habits.
+export function habitHistory(hb, unit = 'week', n = 12, end = D.today()) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const from = unit === 'month' ? D.addMonths(`${end.slice(0, 7)}-01`, -i) : D.addDays(weekOf(end), -7 * i);
+    const next = unit === 'month' ? D.addMonths(from, 1) : D.addDays(from, 7);
+    let value = 0;
+    for (let d = from; d < next && d <= end; d = D.addDays(d, 1)) value += isCount(hb) ? valueOn(hb, d) : isDone(hb.id, d) ? 1 : 0;
+    out.push({ from, to: D.addDays(next, -1), value });
+  }
+  return out;
+}
+
+// For each weekday (0 = Sunday): how often it was planned and how often it got done.
+export function weekdayStats(hb, end = D.today()) {
+  const out = ALL_DAYS.map((day) => ({ day, planned: 0, done: 0 }));
+  for (let d = habitStart(hb); d <= end; d = D.addDays(d, 1)) {
+    const done = isDone(hb.id, d);
+    const planned = !isSkipped(hb.id, d) && (isWeekly(hb) || planDays(hb).includes(D.weekday(d)));
+    if (d === end && !done) continue;
+    if (planned) out[D.weekday(d)].planned++;
+    if (done) out[D.weekday(d)].done++;
+  }
+  return out;
+}
+
+export function habitTotals(hb) {
+  let days = 0; let amount = 0;
+  for (const l of store.all('habitLogs')) {
+    if (l.habit !== hb.id) continue;
+    if (l.done) days++;
+    if (isCount(hb)) amount += Number(l.value) || (l.done ? Number(hb.target) : 0);
+  }
+  return { days, amount };
+}
+
+export function habitNotes(hb) {
+  return store.all('habitLogs').filter((l) => l.habit === hb.id && l.note && l.note.trim()).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 // ---- Expenses -------------------------------------------------------------------------------
