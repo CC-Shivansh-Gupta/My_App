@@ -280,7 +280,9 @@ export function renderMore() {
   const keys = [...SIDEBAR.filter((k) => !pinned.includes(k)), 'settings'];
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'More')),
-    h('div', { class: 'tiles' }, keys.map((k) => h('a', { class: 'tile card', href: `#/${k}` },
-      icon(ROUTE_META[k].icon, 26), h('span', null, h('b', null, ROUTE_META[k].title), h('small', null, ROUTE_META[k].sub))))),
+    h('nav', { class: 'menu-list card', 'aria-label': 'More sections' }, keys.map((k) => h('a', { class: 'menu-row', href: `#/${k}` },
+      h('span', { class: 'menu-icon' }, icon(ROUTE_META[k].icon, 19)),
+      h('span', { class: 'menu-text' }, h('b', null, ROUTE_META[k].title), h('small', null, ROUTE_META[k].sub)),
+      h('span', { class: 'menu-chev' }, icon('right', 18))))),
     h('p', { class: 'muted small' }, 'Choose which sections sit in the bottom bar under Settings → Bottom bar.'));
 }

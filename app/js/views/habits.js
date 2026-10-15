@@ -4,7 +4,7 @@ import * as store from '../store.js';
 import * as D from '../dates.js';
 import * as M from '../models.js';
 import * as E from '../editors.js';
-import { h, icon, section, empty, sheet, closeSheet, field, segmented, toast } from '../ui.js';
+import { h, icon, section, empty, sheet, closeSheet, field, segmented, toast, haptic } from '../ui.js';
 import * as V from '../vices.js';
 import { ATTRS, SEVERITY } from '../gamify.js';
 import * as C from '../charts.js';
@@ -18,10 +18,11 @@ export function render() {
     h('button', { class: 'btn primary sm', onclick: () => E.editHabit() }, icon('plus', 16), 'New habit'));
 
   if (!list.length) {
-    return h('div', { class: 'page' }, head, vicesSection(), section('', null,
-      empty('Track small daily wins. Add your first habit — e.g. “Read 20 pages”, “Walk 8k steps”, “No phone after 11pm”.'),
+    return h('div', { class: 'page' }, head, section('Habits to build', null,
+      empty('Track small daily wins. Tap one to start, or add your own with New habit.'),
       h('div', { class: 'chips' }, [['📖', 'Read 20 pages'], ['🏃', 'Exercise'], ['💧', 'Drink 2L water'], ['🧘', 'Meditate'], ['😴', 'Sleep by 11']].map(([emoji, name]) =>
-        h('button', { class: 'chip', onclick: () => store.put('habits', { name, emoji, days: [0, 1, 2, 3, 4, 5, 6] }) }, `${emoji} ${name}`)))));
+        h('button', { class: 'chip', onclick: () => store.put('habits', { name, emoji, days: [0, 1, 2, 3, 4, 5, 6] }) }, `${emoji} ${name}`)))),
+      vicesSection());
   }
 
   const grid = h('div', { class: 'habit-grid' },
@@ -37,7 +38,7 @@ export function render() {
         return h('button', {
           class: ['hg-cell', on && 'on', !sched && 'rest'], 'aria-pressed': String(on),
           'aria-label': `${hb.name} on ${D.fmtDate(d)}`,
-          onclick: () => M.setDone(hb.id, d, !on),
+          onclick: () => { if (!on) haptic(); M.setDone(hb.id, d, !on); },
         }, on ? icon('check', 16) : null);
       }),
       h('span', { class: 'hg-stat' }, `🔥 ${M.streak(hb, t)}`))));
@@ -113,8 +114,9 @@ function vicesSection() {
           toast(`Logged a slip · −${Math.round((v.penalty || 10) * mult)} XP`, { label: 'Undo', run: () => store.remove('slips', r.id) });
         } }, 'I slipped'));
     })) : h('div', null,
-      h('p', { class: 'small muted' }, 'Things you want to do less. Each slip costs XP; every clean day earns +2. Tap one to start:'),
-      h('div', { class: 'chips' }, V.SUGGESTIONS.map(([emoji, name, penalty, attr]) => h('button', { class: 'chip', onclick: () => store.put('vices', { name, emoji, penalty, attr }) }, `${emoji} ${name}`)))));
+      h('p', { class: 'small muted' }, 'Things you want to do less. Each slip costs XP; every clean day earns +2.'),
+      h('details', { class: 'ideas' }, h('summary', null, 'Show ideas'),
+        h('div', { class: 'chips' }, V.SUGGESTIONS.map(([emoji, name, penalty, attr]) => h('button', { class: 'chip', onclick: () => store.put('vices', { name, emoji, penalty, attr }) }, `${emoji} ${name}`))))));
 }
 
 function editVice(v = null) {

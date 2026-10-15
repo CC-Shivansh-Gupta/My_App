@@ -4,7 +4,7 @@ import * as store from '../store.js';
 import * as D from '../dates.js';
 import * as M from '../models.js';
 import * as E from '../editors.js';
-import { h, icon, section, checkbox, quickInput, empty, money, toast } from '../ui.js';
+import { h, icon, section, checkbox, quickInput, empty, money, toast, haptic } from '../ui.js';
 import { topNews } from './news.js';
 import * as gym from './gym.js';
 import * as goals from './goals.js';
@@ -118,7 +118,7 @@ function habitsCard(date) {
           const st = M.streak(hb, date);
           return h('button', {
             class: ['habit-chip', on && 'on'], 'aria-pressed': String(on),
-            onclick: () => M.setDone(hb.id, date, !on),
+            onclick: () => { if (!on) haptic(); M.setDone(hb.id, date, !on); },
           }, h('span', { class: 'habit-emoji' }, hb.emoji || '✅'),
           h('span', { class: 'habit-name' }, hb.name),
           st > 1 ? h('span', { class: 'habit-streak', 'data-tip': `${st}-day streak` }, `🔥${st}`) : null);

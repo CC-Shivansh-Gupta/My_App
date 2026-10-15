@@ -3,7 +3,7 @@
 import * as store from './store.js';
 import * as sync from './sync.js';
 import * as D from './dates.js';
-import { h, icon, installTooltips, isSheetOpen, closeSheet, toast } from './ui.js';
+import { h, icon, installTooltips, isSheetOpen, closeSheet, toast, reducedMotion } from './ui.js';
 import { quickAdd } from './editors.js';
 import { applyTheme } from './theme.js';
 import * as today from './views/today.js';
@@ -71,7 +71,13 @@ function route() {
 function navLink(name, { badge } = {}) {
   const r = ROUTES[name];
   const active = current === name || (name === 'more' && Boolean(current) && !bottomTabs().includes(current));
-  return h('a', { href: `#/${name}`, class: ['nav-link', active && 'active'], 'aria-current': active ? 'page' : null },
+  // Tapping the tab you're already on takes you back to the top, as on iOS.
+  const onclick = (e) => {
+    if (current !== name || window.scrollY < 4) return;
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
+  };
+  return h('a', { href: `#/${name}`, class: ['nav-link', active && 'active'], 'aria-current': active ? 'page' : null, onclick },
     icon(r.icon), h('span', null, r.title), badge ? h('i', { class: 'nav-badge' }, badge > 99 ? '99+' : badge) : null);
 }
 
@@ -283,6 +289,8 @@ function boot() {
   news.setRerender(rerender);
   window.addEventListener('hashchange', rerender);
   installTooltips();
+  // iOS Safari only applies :active (our press feedback) when a touch listener exists.
+  document.addEventListener('touchstart', () => {}, { passive: true });
 
   document.addEventListener('keydown', (e) => {
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');

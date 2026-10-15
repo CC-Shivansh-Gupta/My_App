@@ -101,20 +101,60 @@ export function icon(name, size = 22) {
   return el;
 }
 
+// ---- Motion: a small spring, Apple-style (damping ratio + response) ---------
+export const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Critically damped by default; damping < 1 only when a flick carried momentum.
+// Animates from the current value with the current velocity, so it can be interrupted at any frame.
+export function spring(from, to, velocity, onFrame, { damping = 1, response = 0.32, onDone } = {}) {
+  const k = (2 * Math.PI / response) ** 2;
+  const c = (4 * Math.PI * damping) / response;
+  let x = from; let v = velocity; let last = performance.now(); let raf = 0; let stopped = false;
+  const step = (now) => {
+    const dt = Math.min(0.034, (now - last) / 1000); last = now;
+    for (let i = 0; i < 4; i++) { v += (-k * (x - to) - c * v) * (dt / 4); x += v * (dt / 4); }
+    if (Math.abs(v) < 4 && Math.abs(x - to) < 0.4) { onFrame(to); onDone?.(); return; }
+    onFrame(x);
+    if (!stopped) raf = requestAnimationFrame(step); // onFrame may have stopped us
+  };
+  raf = requestAnimationFrame(step);
+  return { stop: () => { stopped = true; cancelAnimationFrame(raf); return { value: x, velocity: v }; } };
+}
+
+// Where a flick will come to rest (Apple's projection, normal scroll deceleration).
+const project = (v, rate = 0.998) => ((v / 1000) * rate) / (1 - rate);
+// Progressive resistance past a boundary instead of a hard stop.
+const rubberband = (over, dim, c = 0.55) => (over * dim * c) / (dim + c * Math.abs(over));
+
+// A short haptic tick for meaningful moments (completing something). Android only; iOS ignores it.
+export function haptic(ms = 8) {
+  try { if (!reducedMotion()) navigator.vibrate?.(ms); } catch { /* unsupported */ }
+}
+
 // ---- Sheets (bottom sheet on phones, dialog on wide screens) ---------------
 let openSheetEl = null;
+const isBottomSheet = () => matchMedia('(max-width: 699px)').matches && !reducedMotion();
 
 export function closeSheet() {
   if (!openSheetEl) return;
   const el = openSheetEl;
   openSheetEl = null;
-  el.classList.remove('open');
-  setTimeout(() => el.remove(), 180);
   document.body.classList.remove('sheet-open');
+  if (el.drag) el.drag.dismiss(0);
+  else { el.classList.remove('open'); setTimeout(() => el.remove(), 180); }
+}
+
+// Swap a sheet out at once, e.g. switching kinds in quick add, so the new one doesn't slide in again.
+function dropSheetNow() {
+  if (!openSheetEl) return false;
+  openSheetEl.drag?.stop();
+  openSheetEl.remove();
+  openSheetEl = null;
+  return true;
 }
 
 export function sheet(title, body, { actions } = {}) {
-  closeSheet();
+  const replacing = dropSheetNow();
   const panel = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
     h('div', { class: 'sheet-head' },
       h('h2', null, title),
@@ -125,13 +165,107 @@ export function sheet(title, body, { actions } = {}) {
   document.body.append(wrap);
   document.body.classList.add('sheet-open');
   openSheetEl = wrap;
+  if (isBottomSheet()) wrap.drag = dragToDismiss(wrap, panel, { animateIn: !replacing });
+  else if (replacing) wrap.classList.add('open', 'instant');
   requestAnimationFrame(() => {
     wrap.classList.add('open');
+    if (replacing) requestAnimationFrame(() => wrap.classList.remove('instant'));
     const first = panel.querySelector('[autofocus], input:not([type=checkbox]):not([type=hidden]), textarea');
     if (first && matchMedia('(pointer: fine)').matches) first.focus();
     else if (first && first.hasAttribute('autofocus')) first.focus();
   });
   return panel;
+}
+
+// The phone sheet follows your finger 1:1, rubber-bands upward, and on release
+// projects the flick: far enough down and it closes, otherwise it springs home.
+// Grab it by the title bar (with its handle) anytime, or by the content when it's scrolled to the top.
+function dragToDismiss(wrap, panel, { animateIn }) {
+  let y = 0; let anim = null; let gone = false;
+  const height = () => panel.offsetHeight || window.innerHeight;
+  const paint = (v) => {
+    y = v;
+    panel.style.transform = `translate3d(0, ${Math.max(v, -80)}px, 0)`;
+    wrap.style.backgroundColor = `rgba(0, 0, 0, ${(0.32 * Math.min(1, Math.max(0, 1 - v / height()))).toFixed(3)})`;
+  };
+  const stop = () => { const s = anim?.stop(); anim = null; return s?.velocity || 0; };
+  const settle = (to, v, opts = {}) => {
+    stop();
+    anim = spring(y, to, v, paint, { response: 0.3, ...opts });
+  };
+  const dismiss = (v) => {
+    if (gone) return; gone = true;
+    if (openSheetEl === wrap) { openSheetEl = null; document.body.classList.remove('sheet-open'); }
+    const h0 = height();
+    stop();
+    // Done the moment it's off-screen; no need to wait for the spring's tail.
+    anim = spring(y, h0, Math.max(v, 0), (x) => { paint(x); if (x >= h0 - 1) { anim?.stop(); wrap.remove(); } },
+      { response: 0.3, onDone: () => wrap.remove() });
+  };
+  wrap.classList.add('js-sheet');
+  if (animateIn) { paint(height()); requestAnimationFrame(() => settle(0, 0, { response: 0.35 })); } else paint(0);
+
+  // Gesture: 10px of hysteresis before committing, velocity from the last ~100ms of moves.
+  let g = null;
+  const begin = (clientY, fromContent) => { g = { startY: clientY, base: y, hist: [[performance.now(), clientY]], active: false, fromContent }; };
+  const move = (clientX, clientY, startX) => {
+    if (!g) return false;
+    const dy = clientY - g.startY;
+    if (!g.active) {
+      if (Math.abs(dy) < 10) return false;
+      if (Math.abs(clientX - startX) > Math.abs(dy) || (g.fromContent && (dy < 0 || panel.scrollTop > 0))) { g = null; return false; }
+      g.active = true; g.base = y; // start from where it is now, even mid-animation
+      stop();
+      document.activeElement?.blur?.();
+    }
+    g.hist.push([performance.now(), clientY]);
+    if (g.hist.length > 6) g.hist.shift();
+    const next = g.base + (clientY - g.startY);
+    paint(next < 0 ? -rubberband(-next, height()) : next);
+    return true;
+  };
+  const end = () => {
+    if (!g) return;
+    const { active, hist } = g; g = null;
+    if (!active) return;
+    const now = performance.now();
+    const recent = hist.filter(([t]) => now - t < 100); // a finger that stopped before lifting has no velocity
+    const v = recent.length > 1 ? ((recent[recent.length - 1][1] - recent[0][1]) / (recent[recent.length - 1][0] - recent[0][0] || 1)) * 1000 : 0;
+    if (y + project(v) > height() * 0.5) closeFromDrag(v);
+    else settle(0, v, { damping: Math.abs(v) > 300 ? 0.8 : 1 }); // a little bounce only after a flick
+  };
+  let pendingV = 0;
+  const closeFromDrag = (v) => { pendingV = v; if (openSheetEl === wrap) closeSheet(); else dismiss(v); };
+  const handleOnly = (e) => e.target.closest('.sheet-head') && !e.target.closest('button, input, select, textarea, a');
+
+  // Handle and title: pointer events (touch-action: none in CSS), works with mouse too.
+  let startX = 0;
+  panel.addEventListener('pointerdown', (e) => {
+    if (!handleOnly(e) || e.button > 0) return;
+    startX = e.clientX; begin(e.clientY, false);
+    panel.setPointerCapture?.(e.pointerId);
+  });
+  panel.addEventListener('pointermove', (e) => { if (g && !g.fromContent) move(e.clientX, e.clientY, startX); });
+  panel.addEventListener('pointerup', () => { if (g && !g.fromContent) end(); });
+  panel.addEventListener('pointercancel', () => { if (g && !g.fromContent) end(); });
+
+  // Content: touch events, so pulling down at the top drags the sheet instead of rubber-banding the page.
+  panel.addEventListener('touchstart', (e) => {
+    if (handleOnly(e) || e.touches.length > 1 || e.target.closest('input[type=range], textarea, .map-canvas, [data-no-drag]')) return;
+    for (let el = e.target; el && el !== wrap; el = el.parentElement) if (el.scrollTop > 0) return; // something inside is scrolled
+    startX = e.touches[0].clientX; begin(e.touches[0].clientY, true);
+  }, { passive: true });
+  panel.addEventListener('touchmove', (e) => {
+    if (!g || !g.fromContent) return;
+    const t = e.touches[0];
+    // Claim a downward pull at the top straight away; once the browser starts a pan it can't be taken back.
+    const pullingDown = t.clientY - g.startY > Math.abs(t.clientX - startX) && panel.scrollTop <= 0;
+    if ((move(t.clientX, t.clientY, startX) || (g && pullingDown)) && e.cancelable) e.preventDefault();
+  }, { passive: false });
+  panel.addEventListener('touchend', () => { if (g?.fromContent) end(); });
+  panel.addEventListener('touchcancel', () => { if (g?.fromContent) end(); });
+
+  return { stop, dismiss: (v) => dismiss(v || pendingV) };
 }
 
 export function isSheetOpen() {
@@ -183,11 +317,18 @@ export function installTooltips() {
   document.addEventListener('pointerout', (e) => {
     if (e.target.closest?.('[data-tip]')) hideTip();
   });
+  // On touch a tap just acts; a tip shows only on touch-and-hold, like a context hint.
+  let hold = null; let fade = null;
+  const cancelHold = () => clearTimeout(hold);
   document.addEventListener('pointerdown', (e) => {
+    cancelHold(); hideTip();
     const t = e.target.closest?.('[data-tip]');
-    if (t && e.pointerType !== 'mouse') showTip(t); else hideTip();
+    if (!t || e.pointerType === 'mouse') return;
+    hold = setTimeout(() => { showTip(t); clearTimeout(fade); fade = setTimeout(hideTip, 2200); }, 450);
   });
-  document.addEventListener('scroll', hideTip, true);
+  document.addEventListener('pointerup', cancelHold);
+  document.addEventListener('pointercancel', cancelHold);
+  document.addEventListener('scroll', () => { cancelHold(); hideTip(); }, true);
 }
 
 // ---- Formatting ------------------------------------------------------------------
@@ -208,17 +349,29 @@ export function field(label, control, hint) {
 }
 
 export function segmented(options, value, onChange, { small = false } = {}) {
-  return h('div', { class: ['seg', small && 'seg-sm'], role: 'tablist' },
+  const el = h('div', { class: ['seg', small && 'seg-sm'], role: 'tablist' },
     options.map(([v, label]) => h('button', {
       type: 'button', role: 'tab', 'aria-selected': String(v === value), class: v === value ? 'on' : '',
       onclick: () => onChange(v),
     }, label)));
+  // When it's wider than the screen: keep the chosen option in view and fade the edge that has more.
+  const edges = () => {
+    el.classList.toggle('more-r', el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    el.classList.toggle('more-l', el.scrollLeft > 2);
+  };
+  el.addEventListener('scroll', edges, { passive: true });
+  requestAnimationFrame(() => {
+    const on = el.querySelector('.on');
+    if (on && el.scrollWidth > el.clientWidth) el.scrollLeft = Math.max(0, on.offsetLeft - (el.clientWidth - on.offsetWidth) / 2);
+    edges();
+  });
+  return el;
 }
 
 export function checkbox(checked, onToggle, label = 'Mark done') {
   return h('button', {
     type: 'button', class: ['check', checked && 'on'], role: 'checkbox', 'aria-checked': String(checked),
-    'aria-label': label, onclick: (e) => { e.stopPropagation(); onToggle(!checked); },
+    'aria-label': label, onclick: (e) => { e.stopPropagation(); if (!checked) haptic(); onToggle(!checked); },
   }, icon('check', 16));
 }
 
