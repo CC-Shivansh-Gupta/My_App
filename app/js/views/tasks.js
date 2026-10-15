@@ -31,7 +31,7 @@ export function render(ctx) {
     h('header', { class: 'page-head' }, h('h1', null, 'Tasks'),
       segmented([['headings', 'Headings'], ['dates', 'By date'], ['done', 'Done']], mode, setMode, { small: true })),
     section('', null,
-      quickInput(mode === 'headings' ? 'Add a task (no heading) — try “Pay rent fri !high”' : 'Add a task — try “Pay rent fri !high #home”', (v) => {
+      quickInput('Add a task, e.g. “Pay rent fri”', (v) => {
         M.addTask(D.parseSmart(v));
       }, { key: 'task-add' }),
       tags.length ? h('div', { class: 'chips filter-chips' },
@@ -76,7 +76,7 @@ function byHeading(open, t, ctx) {
   const heads = M.taskHeadings();
   const ids = new Set(heads.map((g) => g.id));
   const loose = open.filter((x) => !x.heading || !ids.has(x.heading)).sort(M.taskSort);
-  const addHeadingInput = quickInput('New heading — e.g. “Work”, “Home”, “Trip to Goa”', (v) => M.addHeading(v), { key: 'heading-add' });
+  const addHeadingInput = quickInput('New heading, e.g. “Work”', (v) => M.addHeading(v), { key: 'heading-add' });
   addHeadingInput.classList.add('heading-add');
 
   return h('div', { class: 'headings' },
