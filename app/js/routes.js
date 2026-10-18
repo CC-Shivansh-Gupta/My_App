@@ -28,7 +28,19 @@ export const ROUTE_META = {
 };
 
 export const SIDEBAR = ['today', 'jarvis', 'hud', 'agent', 'calendar', 'tasks', 'habits', 'routine', 'goals', 'gym', 'money', 'notes', 'brain', 'learn', 'reading', 'watch', 'news', 'screen', 'stats', 'friends'];
-export const DEFAULT_TABS = ['today', 'calendar', 'tasks', 'habits', 'money'];
+// Four everyday sections on the phone's bottom bar to start with; anything can be pinned later.
+export const DEFAULT_TABS = ['today', 'calendar', 'tasks', 'habits'];
+
+// Everything else, grouped so a first look isn't a wall of twenty sections. The essentials
+// are always in view; each group folds away in the sidebar and gets its own heading under More.
+export const ESSENTIALS = ['today', 'calendar', 'tasks', 'habits', 'money'];
+export const GROUPS = [
+  { key: 'plan', title: 'Plan', items: ['routine', 'goals', 'notes'] },
+  { key: 'track', title: 'Track', items: ['gym', 'reading', 'watch', 'screen'] },
+  { key: 'learn', title: 'Learn', items: ['learn', 'brain', 'news'] },
+  { key: 'assistant', title: 'Assistant', items: ['jarvis', 'agent', 'hud'] },
+  { key: 'play', title: 'Progress & friends', items: ['stats', 'friends'] },
+];
 
 // The five sections pinned to the phone's bottom bar (the sixth slot is always "More").
 export function bottomTabs() {
