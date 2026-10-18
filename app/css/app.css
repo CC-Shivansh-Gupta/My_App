@@ -166,6 +166,16 @@ main {
   @media (hover: hover) { .sidebar .nav-link:hover { background: var(--surface-2); } }
   .sidebar .nav-link.active { background: var(--accent-wash); color: var(--accent-ink); }
   .sidebar .nav-badge { position: static; margin-left: auto; }
+  .nav-group { display: flex; flex-direction: column; gap: 2px; }
+  .nav-group > summary {
+    display: flex; align-items: center; gap: 6px; padding: 12px 12px 6px; cursor: pointer; list-style: none;
+    font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  }
+  .nav-group > summary::-webkit-details-marker { display: none; }
+  .nav-group > summary svg { transition: transform .15s; }
+  .nav-group[open] > summary svg { transform: rotate(90deg); }
+  .nav-group[open] > summary .nav-badge { display: none; }
+  @media (hover: hover) { .nav-group > summary:hover { color: var(--ink-2); } }
   .sidebar-foot { margin-top: auto; display: flex; align-items: center; }
   .sidebar-foot .nav-link { flex: 1; }
   .sync-status { padding: 10px; }
@@ -617,6 +627,21 @@ main {
 .menu-text b { font-weight: 550; }
 .menu-text small { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .menu-chev { flex: none; color: var(--axis); display: grid; }
+
+/* More: one card per group, with a small heading */
+.more-group-title { margin: 8px 4px -6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+
+/* Settings: everyday options first, the rest folded under "Advanced" */
+.advanced { display: flex; flex-direction: column; gap: 12px; }
+.advanced > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; padding: 14px 4px; font-weight: 600; color: var(--ink-2); }
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary svg { transition: transform .15s; }
+.advanced[open] > summary svg { transform: rotate(90deg); }
+.advanced > summary small { font-weight: 400; color: var(--muted); }
+
+/* First-run welcome on Today */
+.welcome .welcome-steps { display: grid; gap: 8px; margin: 4px 0 10px; }
+.welcome .welcome-steps .btn { justify-content: flex-start; }
 
 /* Disclosure for optional suggestions */
 .ideas summary { cursor: pointer; color: var(--accent-ink); font-weight: 550; font-size: 14px; padding: 6px 0; list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }

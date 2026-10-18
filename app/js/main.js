@@ -44,7 +44,7 @@ import { status as jarvisStatus } from './jarvis/status.js';
 import * as social from './social.js';
 import * as voice from './voice.js';
 import * as G from './gym/model.js';
-import { ROUTE_META, SIDEBAR, bottomTabs } from './routes.js';
+import { ROUTE_META, ESSENTIALS, GROUPS, bottomTabs } from './routes.js';
 
 const VIEWS = {
   today: [today, 'todo'], calendar: [calendar, 'event'], tasks: [tasks, 'task'], habits: [habits, 'todo'],
@@ -81,6 +81,23 @@ function navLink(name, { badge } = {}) {
     icon(r.icon), h('span', null, r.title), badge ? h('i', { class: 'nav-badge' }, badge > 99 ? '99+' : badge) : null);
 }
 
+// Sidebar groups fold away; the ones you open (and the one you're in) stay open.
+const NAV_OPEN = 'daybook.navOpen';
+function openGroups() {
+  try { return JSON.parse(localStorage.getItem(NAV_OPEN)) || []; } catch { return []; }
+}
+function navGroup(g, counts) {
+  const badge = g.items.reduce((n, k) => n + (counts[k] || 0), 0);
+  const remember = () => {
+    const rest = openGroups().filter((k) => k !== g.key);
+    try { localStorage.setItem(NAV_OPEN, JSON.stringify(el.open ? rest : [...rest, g.key])); } catch { /* ignore */ }
+  };
+  const el = h('details', { class: 'nav-group', open: g.items.includes(current) || openGroups().includes(g.key) },
+    h('summary', { onclick: remember }, icon('right', 16), h('span', null, g.title), badge ? h('i', { class: 'nav-badge' }, badge > 99 ? '99+' : badge) : null),
+    ...g.items.map((n) => navLink(n, { badge: counts[n] || 0 })));
+  return el;
+}
+
 function renderNav() {
   const newsCount = news.unseenCount();
   const friendCount = social.unseenCount();
@@ -92,7 +109,8 @@ function renderNav() {
   sidebar.replaceChildren(
     h('div', { class: 'brand' }, h('img', { src: 'icons/icon.svg', alt: '', width: 28, height: 28 }), h('span', null, 'Daybook')),
     stats.levelChip(),
-    ...SIDEBAR.map((n) => navLink(n, { badge: n === 'news' ? newsCount : n === 'friends' ? friendCount : n === 'agent' ? agentCount : 0 })),
+    ...ESSENTIALS.map((n) => navLink(n)),
+    ...GROUPS.map((g) => navGroup(g, { news: newsCount, friends: friendCount, agent: agentCount })),
     h('div', { class: 'sidebar-foot' }, navLink('settings'), h('a', { href: '#/settings', class: 'sync-status' }, syncDot)));
   const tabs = bottomTabs();
   const hidden = (k) => !tabs.includes(k);

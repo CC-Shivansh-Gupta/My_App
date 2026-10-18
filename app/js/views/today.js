@@ -36,11 +36,30 @@ export function render(ctx) {
 
   return h('div', { class: 'page' }, header,
     h('div', { class: 'grid-2' },
-      h('div', { class: 'stack' }, isToday ? agent.todayCard() : null, isToday ? routine.todayCard() : null, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null, isToday ? learn.todayCard() : null),
-      h('div', { class: 'stack' }, isToday ? gym.todayCard() : null, habitsCard(date), spendCard(date), isToday ? screen.todayCard() : null, readingCard(), isToday ? newsCard() : null)));
+      h('div', { class: 'stack' }, isToday ? welcomeCard(ctx) : null, isToday ? agent.todayCard() : null, isToday ? routine.todayCard() : null, todoCard(date, isToday), scheduleCard(date), isToday ? goals.todayCard() : null, isToday ? learn.todayCard() : null),
+      h('div', { class: 'stack' }, isToday ? gym.todayCard() : null, habitsCard(date), spendCard(date), isToday && store.all('screentime').length ? screen.todayCard() : null, readingCard(), isToday ? newsCard() : null)));
 }
 
 export function onLeave() { day = null; }
+
+// First run: a short "start here" instead of a wall of sections. Goes away once you've added
+// anything, or when you dismiss it.
+function welcomeCard(ctx) {
+  if (store.pref('welcomed', false)) return null;
+  if (['todos', 'tasks', 'habits', 'events', 'expenses'].some((c) => store.all(c).length)) return null;
+  const pick = (label, run) => h('button', { class: 'btn ghost', onclick: run }, label);
+  return h('section', { class: 'card welcome' },
+    h('div', { class: 'card-head' }, h('h3', null, 'Welcome to Daybook 👋')),
+    h('p', null, 'No setup needed: everything you add is saved on this device. Start with one thing:'),
+    h('div', { class: 'welcome-steps' },
+      pick('✅ Add a to-do for today', () => E.quickAdd({ kind: 'todo' })),
+      pick('🔁 Start a habit', () => E.editHabit()),
+      pick('💸 Log something you spent', () => E.quickAdd({ kind: 'expense' })),
+      pick('📅 Add an event', () => E.editEvent({}, { date: D.today() }))),
+    h('p', { class: 'small muted' }, 'Goals, gym, reading, notes, the Jarvis assistant and more are under ',
+      h('a', { href: '#/more' }, 'More'), ' whenever you want them. Syncing between devices is optional, in ', h('a', { href: '#/settings' }, 'Settings'), '.'),
+    h('button', { class: 'btn primary sm', onclick: () => { store.setPref('welcomed', true); ctx.rerender(); } }, 'Got it'));
+}
 
 function greeting() {
   const hr = new Date().getHours();

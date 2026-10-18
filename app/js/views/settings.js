@@ -7,7 +7,7 @@ import * as login from '../login.js';
 import * as M from '../models.js';
 import { h, icon, section, field, segmented, toast } from '../ui.js';
 import { applyTheme } from '../theme.js';
-import { ROUTE_META, SIDEBAR, DEFAULT_TABS, bottomTabs } from '../routes.js';
+import { ROUTE_META, SIDEBAR, DEFAULT_TABS, ESSENTIALS, GROUPS, bottomTabs } from '../routes.js';
 import * as voice from '../voice.js';
 import * as W from '../whisper.js';
 import * as install from '../install.js';
@@ -18,7 +18,12 @@ const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&descriptio
 export function render(ctx) {
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'Settings')),
-    syncCard(ctx), voiceCard(ctx), gameCard(), navCard(), prefsCard(ctx), categoriesCard(), archivedCard(), dataCard(), installCard());
+    h('p', { class: 'muted small' }, 'Nothing here is required: Daybook works straight away on this device. Come back when you want sync, voice or a different look.'),
+    prefsCard(ctx), navCard(), syncCard(ctx), dataCard(), installCard(),
+    // Everything else stays one tap away, out of a first-timer's way.
+    h('details', { class: 'advanced' },
+      h('summary', null, icon('right', 18), 'Advanced', h('small', null, 'Voice, XP penalties, expense categories, archived habits')),
+      voiceCard(ctx), gameCard(), categoriesCard(), archivedCard()));
 }
 
 function syncCard(ctx) {
@@ -60,8 +65,8 @@ function syncCard(ctx) {
     }
     ctx.rerender();
   } }, 'Connect');
-  return section('Account & sync', h('span', { class: 'badge' }, 'Signed out'),
-    h('p', { class: 'small' }, 'Sign in to bring your data, AI keys, vault and voice settings to this device.'),
+  return section('Account & sync', h('span', { class: 'badge' }, 'Optional'),
+    h('p', { class: 'small' }, 'Your data is saved on this device already. Sign in only if you want it on your other devices too, along with your AI keys, vault and voice settings.'),
     h('div', { class: 'form' }, field('GitHub username', user), field('Password', pw), signIn),
     h('details', { class: 'jv-box small' }, h('summary', null, 'First device, or no password yet? Connect with a GitHub token'),
       h('p', { class: 'small' }, 'Your data lives on this device until you connect. Everything is stored in a private (secret) gist on your GitHub account.'),
@@ -166,7 +171,7 @@ function gameCard() {
 function navCard() {
   const tabs = bottomTabs();
   return section('Bottom bar (phone)', h('span', { class: 'count' }, `${tabs.length}/5`),
-    h('p', { class: 'small muted' }, 'Pick up to five sections for the bottom bar. Everything else lives under “More”.'),
+    h('p', { class: 'small muted' }, 'Pick up to five sections for the phone’s bottom bar. Everything else lives under “More”.'),
     h('div', { class: 'chips' }, SIDEBAR.map((k) => h('button', {
       class: ['chip', tabs.includes(k) && 'on'],
       onclick: () => {
@@ -275,14 +280,23 @@ function installCard() {
 }
 
 // "More" page for phones: every section that isn't pinned to the bottom bar.
+// Grouped, so it reads as a handful of headings rather than one long list.
 export function renderMore() {
   const pinned = bottomTabs();
-  const keys = [...SIDEBAR.filter((k) => !pinned.includes(k)), 'settings'];
+  const groups = [
+    { title: 'Everyday', items: ESSENTIALS },
+    ...GROUPS,
+    { title: 'App', items: ['settings'] },
+  ].map((g) => ({ ...g, items: g.items.filter((k) => !pinned.includes(k)) })).filter((g) => g.items.length);
+  const row = (k) => h('a', { class: 'menu-row', href: `#/${k}` },
+    h('span', { class: 'menu-icon' }, icon(ROUTE_META[k].icon, 19)),
+    h('span', { class: 'menu-text' }, h('b', null, ROUTE_META[k].title), h('small', null, ROUTE_META[k].sub)),
+    h('span', { class: 'menu-chev' }, icon('right', 18)));
   return h('div', { class: 'page narrow' },
     h('header', { class: 'page-head' }, h('h1', null, 'More')),
-    h('nav', { class: 'menu-list card', 'aria-label': 'More sections' }, keys.map((k) => h('a', { class: 'menu-row', href: `#/${k}` },
-      h('span', { class: 'menu-icon' }, icon(ROUTE_META[k].icon, 19)),
-      h('span', { class: 'menu-text' }, h('b', null, ROUTE_META[k].title), h('small', null, ROUTE_META[k].sub)),
-      h('span', { class: 'menu-chev' }, icon('right', 18))))),
-    h('p', { class: 'muted small' }, 'Choose which sections sit in the bottom bar under Settings → Bottom bar.'));
+    groups.flatMap((g) => [
+      h('h2', { class: 'more-group-title' }, g.title),
+      h('nav', { class: 'menu-list card', 'aria-label': g.title }, g.items.map(row)),
+    ]),
+    h('p', { class: 'muted small' }, 'Use something a lot? Pin it to the bottom bar in Settings → Bottom bar.'));
 }
