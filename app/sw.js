@@ -1,5 +1,5 @@
 // Offline support: network first (so updates show up immediately), cache as fallback.
-const CACHE = 'daybook-v6';
+const CACHE = 'daybook-v7';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/main.js', 'js/store.js', 'js/sync.js', 'js/dates.js', 'js/ui.js', 'js/charts.js', 'js/models.js',
@@ -18,8 +18,10 @@ const SHELL = [
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 
+// Always ask the server (GitHub Pages lets browsers reuse files for 10 minutes), so a new version
+// never gets filled with the old one's files.
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -34,7 +36,8 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const network = fetch(req).then((res) => {
+    // Revalidate instead of trusting the browser's HTTP cache: an unchanged file is a cheap 304.
+    const network = fetch(req, { cache: 'no-cache' }).then((res) => {
       if (res.ok) cache.put(req, res.clone());
       return res;
     });
