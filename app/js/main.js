@@ -349,7 +349,20 @@ function boot() {
 
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // A home-screen app can stay open for days: look for a new version whenever it comes back to the front.
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch((e) => console.warn('SW registration failed', e));
+    // A new version took over: reload into it while you're away, or now if you tap Reload.
+    if (navigator.serviceWorker.controller) {
+      let reloading = false;
+      const reload = () => { if (!reloading) { reloading = true; location.reload(); } };
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (document.visibilityState === 'hidden' && !isSheetOpen()) { reload(); return; }
+        toast('Daybook was updated', { label: 'Reload', run: reload });
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && !isSheetOpen()) reload(); });
+      });
+    }
   }
 }
 
