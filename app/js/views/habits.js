@@ -12,12 +12,14 @@ import * as C from '../charts.js';
 import { editHabit, colorOf, describe, fmtNum, IDEAS, WHEN } from './habit-form.js';
 
 const go = (hb) => { location.hash = `#/habits/${hb.id}`; };
+// The habit whose page is open (#/habits/<id>), if any.
+const openId = () => (/^#\/?habits\//.test(location.hash) ? decodeURIComponent(location.hash.split(/[/?]/)[2] || '') : '');
 let shownId = null;
 let redraw = () => {};
 
 export function render(ctx = {}) {
   if (ctx.rerender) redraw = ctx.rerender;
-  const id = decodeURIComponent(location.hash.split(/[/?]/)[2] || '');
+  const id = openId();
   const hb = id ? store.get('habits', id) : null;
   if ((hb?.id || null) !== shownId) {
     shownId = hb?.id || null;
@@ -163,7 +165,10 @@ export function daySheet(hb, date) {
     });
     closeSheet();
   };
-  sheet(`${hb.emoji || '✅'} ${hb.name} · ${D.fmtDate(date)}`, body, { actions: [h('button', { class: 'btn primary', onclick: save }, 'Save')] });
+  const actions = [h('button', { class: 'btn primary', onclick: save }, 'Save')];
+  // From Today or the week grid, this is the way into the habit's own page (history, calendar to fill in past days).
+  if (openId() !== hb.id) actions.unshift(h('button', { class: 'btn ghost', onclick: () => { closeSheet(); go(hb); } }, 'History & calendar'));
+  sheet(`${hb.emoji || '✅'} ${hb.name} · ${D.fmtDate(date)}`, body, { actions });
 }
 
 // A burst of confetti in the habits' colours.
