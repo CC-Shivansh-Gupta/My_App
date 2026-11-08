@@ -21,11 +21,13 @@ export function render(ctx = {}) {
   if (ctx.rerender) redraw = ctx.rerender;
   const id = openId();
   const hb = id ? store.get('habits', id) : null;
-  if ((hb?.id || null) !== shownId) {
-    shownId = hb?.id || null;
+  const vice = id && !hb ? store.get('vices', id) : null;
+  const shown = hb || vice;
+  if ((shown?.id || null) !== shownId) {
+    shownId = shown?.id || null;
     requestAnimationFrame(() => window.scrollTo(0, 0));
   }
-  return hb ? detail(hb) : overview();
+  return hb ? detail(hb) : vice && !vice.archived ? viceDetail(vice) : overview();
 }
 
 // ---- Ticking, with a little ceremony ------------------------------------------------------------------
@@ -582,7 +584,7 @@ function vicesSection() {
       const slipDays = new Set(slips.map((x) => x.date));
       const todaySlips = slips.filter((x) => x.date === t).length;
       return h('div', { class: 'vice' },
-        h('button', { class: 'vice-name', onclick: () => editVice(v) }, h('span', { class: 'habit-emoji' }, v.emoji || '🚫'),
+        h('button', { class: 'vice-name', onclick: () => go(v), 'aria-label': `${v.name}: open history and calendar` }, h('span', { class: 'habit-emoji' }, v.emoji || '🚫'),
           h('span', null, h('b', null, v.name), h('span', { class: 'row-sub' }, clean ? `Clean for ${clean} day${clean === 1 ? '' : 's'} · best ${V.bestClean(v, t)}` : `Slipped today${todaySlips > 1 ? ` (${todaySlips}×)` : ''}`))),
         h('div', { class: 'vice-dots', 'aria-label': 'Last 14 days' }, days.map((d) => h('i', { class: slipDays.has(d) ? 'slip' : d < V.startDate(v) ? 'na' : 'ok', 'data-tip': `${D.fmtDate(d, { relative: false })}: ${slipDays.has(d) ? 'slipped' : d < V.startDate(v) ? 'not tracked' : 'clean'}` }))),
         h('button', { class: 'btn slip-btn sm', onclick: () => {
@@ -615,10 +617,195 @@ function editVice(v = null) {
       const r = store.put('slips', { vice: v.id, date: D.addDays(D.today(), -1), note: '', ts: Date.now() });
       closeSheet(); toast('Logged a slip for yesterday', { label: 'Undo', run: () => store.remove('slips', r.id) });
     } }, 'Slipped yesterday'));
-    actions.unshift(h('button', { class: 'btn danger ghost', onclick: () => { store.put('vices', { ...v, archived: true }); closeSheet(); toast('Stopped tracking', { label: 'Undo', run: () => store.put('vices', { ...v, archived: false }) }); } }, 'Stop tracking'));
+    actions.unshift(h('button', { class: 'btn danger ghost', onclick: () => { store.put('vices', { ...v, archived: true }); closeSheet(); if (openId() === v.id) location.hash = '#/habits'; toast('Stopped tracking', { label: 'Undo', run: () => store.put('vices', { ...v, archived: false }) }); } }, 'Stop tracking'));
   }
   sheet(v ? 'Habit to break' : 'New habit to break', h('div', { class: 'form' },
     h('div', { class: 'row2 name-emoji' }, field('Name', name), field('Emoji', emoji)),
     field('XP lost per slip', pen), field('Which attribute it hurts', attr),
     h('p', { class: 'muted small' }, 'Every day without a slip earns +2 XP, so clean streaks pay off.')), { actions });
+}
+
+// ---- One habit to break -----------------------------------------------------------------------------------
+// The same idea as a habit's page, turned around: clean streaks instead of ticks, slips in red.
+function viceDetail(v) {
+  if (ui.habit !== v.id) Object.assign(ui, { habit: v.id, month: D.today().slice(0, 7) + '-01' });
+  const t = D.today();
+  const mult = SEVERITY[store.pref('penaltyLevel', 'normal')] ?? 1;
+  return h('div', { class: 'page habit-detail vice-detail', style: '--hc:var(--good)' },
+    h('div', { class: 'detail-nav' },
+      h('a', { class: 'btn ghost sm back', href: '#/habits' }, icon('left', 16), 'Habits'),
+      h('button', { class: 'btn ghost sm', onclick: () => editVice(v) }, 'Edit')),
+    h('header', { class: 'habit-title' },
+      h('span', { class: 'hb-bubble xl', style: '--p:0' }, h('span', null, v.emoji || '🚫')),
+      h('div', null, h('h1', null, v.name), h('p', { class: 'muted' }, `Habit to break · −${Math.round((v.penalty || 10) * mult)} XP a slip, +2 XP a clean day`))),
+    viceTodayCard(v, t),
+    viceOverviewCard(v, t),
+    section('How it’s going', null, h('ul', { class: 'insights' }, viceInsights(v, t).map((x) => h('li', null, x)))),
+    viceHistoryCard(v, t),
+    viceCalendarCard(v, t),
+    h('div', { class: 'grid-2' }, cleanRunsCard(v, t), viceWeekdayCard(v)),
+    viceYearCard(v, t),
+    slipLogCard(v));
+}
+
+function viceTodayCard(v, t) {
+  const n = V.slipsOn(v.id, t).length;
+  return h('section', { class: ['card', 'checkin', !n && 'done'] },
+    h('span', { class: 'hb-bubble lg', style: '--p:0' }, h('span', null, n ? '😬' : '🛡️')),
+    h('div', { class: 'checkin-text' }, h('b', null, n ? `Slipped today${n > 1 ? ` (${n}×)` : ''}` : 'Clean today so far'),
+      h('span', { class: 'muted' }, n ? 'It happens. Tomorrow is a clean slate.' : `${V.cleanStreak(v, t)} clean day${V.cleanStreak(v, t) === 1 ? '' : 's'} in a row.`)),
+    h('div', { class: 'checkin-actions' },
+      n ? h('button', { class: 'btn ghost sm', onclick: () => V.setSlips(v, t, n - 1) }, 'Undo a slip') : null,
+      h('button', { class: 'btn slip-btn sm', onclick: () => slipNow(v, t) }, n ? 'Slipped again' : 'I slipped')));
+}
+
+function slipNow(v, date) {
+  const r = V.logSlip(v, date);
+  const mult = SEVERITY[store.pref('penaltyLevel', 'normal')] ?? 1;
+  toast(`Logged a slip${date === D.today() ? '' : ` for ${D.fmtDate(date)}`} · −${Math.round((v.penalty || 10) * mult)} XP`, { label: 'Undo', run: () => store.remove('slips', r.id) });
+}
+
+function viceOverviewCard(v, t) {
+  const start = V.startDate(v);
+  const from30 = D.addDays(t, -29);
+  const slips = V.slipsFor(v.id);
+  const days30 = new Set(slips.filter((s) => s.date >= from30).map((s) => s.date));
+  const tracked = Math.min(30, D.diffDays(start, t) + 1);
+  const cleanDays = Math.max(0, tracked - days30.size);
+  const clean = V.cleanStreak(v, t);
+  const best = V.bestClean(v, t);
+  return h('section', { class: 'card' }, h('div', { class: 'stat-grid' },
+    stat('Clean streak', `${clean} day${clean === 1 ? '' : 's'}`),
+    stat('Best clean streak', `${best} day${best === 1 ? '' : 's'}`),
+    stat('Slips · last 30 days', String(slips.filter((s) => s.date >= from30).length)),
+    stat('Clean days · last 30', tracked ? `${Math.round((cleanDays / tracked) * 100)}%` : '—'),
+    stat('Slips in all', String(slips.length)),
+    stat('Since', D.fmtDate(start, { relative: false, weekday: false }))));
+}
+
+export function viceInsights(v, t = D.today()) {
+  const out = [];
+  const slips = V.slipsFor(v.id);
+  const clean = V.cleanStreak(v, t);
+  const best = V.bestClean(v, t);
+  if (!slips.length) out.push(clean ? `${clean} day${clean === 1 ? '' : 's'} clean and no slips yet. Keep it that way.` : 'Day one. Every clean day earns +2 XP.');
+  else if (clean && clean >= best) out.push(`${clean} days clean — your longest run yet. 🏆`);
+  else if (clean) out.push(`${clean} day${clean === 1 ? '' : 's'} clean. ${best - clean} more to beat your best of ${best}.`);
+  const count = (from, to) => slips.filter((s) => s.date >= from && s.date <= to).length;
+  const now = count(D.addDays(t, -29), t);
+  const before = count(D.addDays(t, -59), D.addDays(t, -30));
+  if (D.diffDays(V.startDate(v), t) >= 45 && (now || before)) {
+    out.push(now < before ? `${now} slip${now === 1 ? '' : 's'} in the last 30 days, down from ${before} — it’s working.`
+      : now > before ? `${now} slips in the last 30 days, up from ${before}. Notice what sets it off.`
+        : `${now} slip${now === 1 ? '' : 's'} in the last 30 days, same as the month before.`);
+  }
+  const wd = V.weekdaySlips(v);
+  const top = Math.max(...wd);
+  if (slips.length >= 5 && top >= 3 && top >= 2 * (slips.length / 7)) out.push(`Most slips happen on ${D.DAY_NAMES[wd.indexOf(top)]}s. Plan something else for then.`);
+  return out;
+}
+
+function viceHistoryCard(v, t) {
+  const unit = ui.hist;
+  const data = V.slipHistory(v, unit, 12, t).map((r) => ({
+    label: unit === 'month' ? D.MONTH_NAMES[D.parse(r.from).getMonth()].slice(0, 3) : D.parse(r.from).getDate(),
+    value: r.value, highlight: r.to >= t,
+    tip: `${unit === 'month' ? D.MONTH_NAMES[D.parse(r.from).getMonth()] : `Week of ${D.fmtDate(r.from, { relative: false })}`}: ${r.value} slip${r.value === 1 ? '' : 's'}`,
+  }));
+  return section('Slips over time', segmented([['week', 'Weeks'], ['month', 'Months']], unit, (u) => { ui.hist = u; rerenderSoon(); }, { small: true }),
+    C.columns(data, { fmt: String }));
+}
+
+// The month: tap any past day to mark a slip (or take it back); hold to set how many and add a note.
+function viceCalendarCard(v, t) {
+  const month = ui.month;
+  const start = V.startDate(v);
+  const m = D.parse(month).getMonth();
+  const weeks = D.monthMatrix(month, store.pref('weekStart', 1));
+  const order = store.pref('weekStart', 1) === 1 ? [1, 2, 3, 4, 5, 6, 0] : [0, 1, 2, 3, 4, 5, 6];
+  const nav = h('div', { class: 'cal-nav-sm' },
+    h('button', { class: 'icon-btn', 'aria-label': 'Previous month', onclick: () => { ui.month = D.addMonths(month, -1); rerenderSoon(); } }, icon('left', 18)),
+    h('b', null, `${D.MONTH_NAMES[m]} ${D.parse(month).getFullYear()}`),
+    h('button', { class: 'icon-btn', 'aria-label': 'Next month', disabled: D.addMonths(month, 1) > t, onclick: () => { ui.month = D.addMonths(month, 1); rerenderSoon(); } }, icon('right', 18)));
+  const cells = weeks.flat().map((d) => {
+    const n = V.slipsOn(v.id, d).length;
+    const future = d > t;
+    const state = n ? `slipped${n > 1 ? ` ${n}×` : ''}` : future ? '' : d < start ? 'not tracked' : 'clean';
+    const cell = h('button', {
+      class: ['hc-day', D.parse(d).getMonth() !== m && 'out', n && 'slip', !n && !future && d >= start && 'clean', !n && d < start && 'rest', d === t && 'today'],
+      disabled: future, 'data-tip': `${D.fmtDate(d, { relative: false })}${state ? `: ${state}` : ''}`, 'aria-label': `${D.fmtDate(d, { relative: false })}${state ? `, ${state}` : ''}`,
+      onclick: () => {
+        if (!n) { slipNow(v, d); return; }
+        const gone = V.setSlips(v, d, 0);
+        toast(`${D.fmtDate(d)} marked clean`, { label: 'Undo', run: () => gone.forEach((r) => store.restore('slips', r)) });
+      },
+    }, D.parse(d).getDate());
+    return holdable(cell, () => slipDaySheet(v, d));
+  });
+  return section('Calendar', nav,
+    h('div', { class: 'hc-grid' }, order.map((d) => h('span', { class: 'hc-dow' }, D.DAY_NAMES[d].slice(0, 1))), cells),
+    h('div', { class: 'legend small muted' },
+      h('span', null, h('i', { class: 'lg clean' }), 'Clean'), h('span', null, h('i', { class: 'lg slip' }), 'Slipped')),
+    h('p', { class: 'small muted' }, 'Tap a day to mark a slip, tap again to clear it. Hold to set how many and add a note.'));
+}
+
+// One day: how many slips, and a note on what happened.
+function slipDaySheet(v, date) {
+  const have = V.slipsOn(v.id, date);
+  let n = have.length;
+  const note = h('textarea', { rows: 2, placeholder: 'What set it off? (optional)', value: have.find((s) => s.note)?.note || '' });
+  const count = h('div');
+  const draw = () => count.replaceChildren(h('div', { class: 'amount' },
+    h('button', { type: 'button', class: 'icon-btn amount-step', 'aria-label': 'Fewer', onclick: () => { n = Math.max(0, n - 1); draw(); } }, '−'),
+    h('div', { class: 'amount-mid' }, h('b', { class: 'amount-input' }, String(n)), h('span', { class: 'muted small' }, n ? `slip${n === 1 ? '' : 's'}` : 'clean day')),
+    h('button', { type: 'button', class: 'icon-btn amount-step', 'aria-label': 'More', onclick: () => { n += 1; draw(); } }, '+')));
+  draw();
+  const save = () => {
+    V.setSlips(v, date, n);
+    const first = V.slipsOn(v.id, date)[0];
+    if (first && (first.note || '') !== note.value.trim()) store.put('slips', { ...first, note: note.value.trim() });
+    closeSheet();
+  };
+  sheet(`${v.emoji || '🚫'} ${v.name} · ${D.fmtDate(date)}`, h('div', { class: 'form' }, count, field('Note', note)),
+    { actions: [h('button', { class: 'btn primary', onclick: save }, 'Save')] });
+}
+
+function cleanRunsCard(v, t) {
+  const runs = V.cleanRuns(v, t).sort((a, b) => b.n - a.n || b.to.localeCompare(a.to)).slice(0, 5);
+  const span = (r) => `${D.fmtDate(r.from, { relative: false, weekday: false })} – ${r.to === t ? 'now' : D.fmtDate(r.to, { relative: false, weekday: false })}`;
+  return section('Longest clean runs', null, runs.length
+    ? C.hbars(runs.map((r, i) => ({ key: i, label: span(r), value: r.n, tip: `${r.n} day${r.n === 1 ? '' : 's'} clean · ${span(r)}` })), { fmt: (x) => `${x}d` })
+    : h('p', { class: 'empty' }, 'Your clean runs will show up here.'));
+}
+
+function viceWeekdayCard(v) {
+  const order = store.pref('weekStart', 1) === 1 ? [1, 2, 3, 4, 5, 6, 0] : [0, 1, 2, 3, 4, 5, 6];
+  const wd = V.weekdaySlips(v);
+  const top = Math.max(...wd);
+  return section('Slips by day of the week', null, C.columns(order.map((d) => ({
+    label: D.DAY_NAMES[d].slice(0, 2), value: wd[d], highlight: top > 0 && wd[d] === top, tip: `${D.DAY_NAMES[d]}: ${wd[d]} slip${wd[d] === 1 ? '' : 's'}`,
+  })), { fmt: String, height: 110 }));
+}
+
+function viceYearCard(v, t) {
+  const start = D.addDays(t, -(53 * 7 - 1));
+  const first = D.addDays(start, -((D.weekday(start) - store.pref('weekStart', 1) + 7) % 7));
+  const vs = V.startDate(v);
+  const slipDays = new Map();
+  for (const sl of V.slipsFor(v.id)) slipDays.set(sl.date, (slipDays.get(sl.date) || 0) + 1);
+  const cells = [];
+  for (let d = first; d <= t; d = D.addDays(d, 1)) {
+    const n = slipDays.get(d) || 0;
+    cells.push({ date: d, today: d === t, level: n ? 0 : d >= vs ? 4 : null, cls: n && 'slip',
+      tip: `${D.fmtDate(d, { relative: false })}: ${n ? `slipped${n > 1 ? ` ${n}×` : ''}` : d >= vs ? 'clean' : 'not tracked'}` });
+  }
+  return section('Past year', null, h('div', { class: 'year-scroll' }, C.heatmap(cells)));
+}
+
+function slipLogCard(v) {
+  const slips = V.slipsFor(v.id).slice().reverse();
+  if (!slips.length) return null;
+  return section('Slip log', h('span', { class: 'count' }, slips.length),
+    h('ul', { class: 'list compact' }, slips.slice(0, 30).map((sl) => h('li', { class: 'row', onclick: () => slipDaySheet(v, sl.date) },
+      h('div', { class: 'row-main' }, h('span', null, sl.note || 'Slipped'), h('span', { class: 'row-sub' }, D.fmtDate(sl.date)))))));
 }

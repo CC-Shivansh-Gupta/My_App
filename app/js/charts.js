@@ -45,11 +45,11 @@ export function hbars(data, { fmt = String, onPick = null, active = null } = {})
     h('span', { class: 'hbar-value' }, fmt(d.value), d.sub ? h('small', null, ` ${d.sub}`) : null))));
 }
 
-// Calendar heatmap: weeks as columns, weekdays as rows. cells: [{date, level(0-4|null), tip}]
+// Calendar heatmap: weeks as columns, weekdays as rows. cells: [{date, level(0-4|null), tip, cls}]
 export function heatmap(cells, { rows = 7 } = {}) {
   return h('div', { class: 'heatmap', style: { gridTemplateRows: `repeat(${rows}, 1fr)` } },
     cells.map((c) => h('span', {
-      class: ['hm', c.level === null ? 'hm-off' : `hm-${c.level}`, c.today && 'hm-today'],
+      class: ['hm', c.level === null ? 'hm-off' : `hm-${c.level}`, c.today && 'hm-today', c.cls],
       'data-tip': c.tip,
     })));
 }
