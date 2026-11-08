@@ -526,6 +526,14 @@ main {
 .lg.skip { background: repeating-linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 4px); }
 .lg.miss { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--bad) 60%, transparent); }
 
+/* A habit to break: clean days in green, slips in red */
+.hc-day.slip, .hc-day.slip:hover { background: var(--bad); color: #fff; font-weight: 650; }
+.hc-day.clean { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--good) 45%, transparent); }
+.hc-day.today.clean { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--good) 45%, transparent), 0 0 0 2px var(--surface), 0 0 0 3.5px var(--hc); }
+.lg.slip { background: var(--bad); }
+.lg.clean { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--good) 60%, transparent); }
+.vice-detail .col .bar, .hm.slip { background: var(--bad); }
+
 /* Confetti for perfect days and streak milestones */
 .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 70; overflow: hidden; }
 .confetti i { position: absolute; top: 70%; width: 8px; height: 12px; border-radius: 2px; background: var(--c); opacity: 0;
